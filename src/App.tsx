@@ -125,7 +125,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50 text-slate-800 font-sans">
+    <div className="flex flex-col min-h-screen bg-slate-50 text-slate-800 font-sans print:bg-white print:text-black">
       
       {/* Header component with Tab management and Security Lock information */}
       <Header 
@@ -137,10 +137,10 @@ export default function App() {
       />
 
       {/* Main Container */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-6 md:py-10">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-6 md:py-10 print:p-0 print:max-w-full print:m-0">
         
         {/* Dynamic header summary based on stage of enrollment */}
-        {currentTab !== "admin" && (
+        {currentTab !== "admin" && currentTab !== "manual" && (
           <div className="mb-8 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="p-2.5 bg-orange-500/10 border border-orange-500/20 rounded-lg text-orange-600">
@@ -162,7 +162,7 @@ export default function App() {
                 1. Início
               </span>
               <span className="text-slate-300">→</span>
-              <span className={`px-3 py-1 rounded-full font-medium transition-colors ${currentTab === "safety" ? "bg-orange-500 text-white font-bold shadow-xs" : securityCleared ? "bg-emerald-50 text-emerald-700 border border-emerald-250 font-semibold" : "bg-slate-100 text-slate-600 border border-slate-200"}`}>
+              <span className={`px-3 py-1 rounded-full font-medium transition-colors ${currentTab === "safety" ? "bg-orange-550 text-white font-bold shadow-xs" : securityCleared ? "bg-emerald-50 text-emerald-700 border border-emerald-250 font-semibold" : "bg-slate-100 text-slate-600 border border-slate-200"}`}>
                 2. Segurança {securityCleared ? "✓" : ""}
               </span>
               <span className="text-slate-300">→</span>

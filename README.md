@@ -4,8 +4,6 @@ Este projeto é um **Portal de Agendamento e Gestão de Segurança de Visitas** 
 
 ---
 
-== LINK PARA TESTE: https://ais-pre-muvm5pgkzsozqbcjwvlc3f-568072175560.us-east1.run.app/
-
 ## 🗺️ Fluxo de Funcionamento
 
 O sistema segue um fluxo linear e seguro para garantir conformidade antes de qualquer agendamento:

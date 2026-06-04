@@ -4,7 +4,7 @@ import { Anchor } from "lucide-react";
 export function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer className="w-full bg-slate-100 border-t border-slate-200/80 py-6 text-center text-xs text-slate-500 mt-auto">
+    <footer className="w-full bg-slate-100 border-t border-slate-200/80 py-6 text-center text-xs text-slate-500 mt-auto print:hidden">
       <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2 text-slate-700 font-medium">
           <Anchor className="h-4 w-4 text-orange-500 animate-pulse" />

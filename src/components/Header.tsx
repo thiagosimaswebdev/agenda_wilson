@@ -23,7 +23,7 @@ export function Header({ currentTab, setTab, securityCleared, onOpenAdminAuth, i
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-white border-b border-slate-250/80 shadow-xs">
+    <header className="sticky top-0 z-50 w-full bg-white border-b border-slate-250/80 shadow-xs print:hidden">
       <div className="max-w-7xl mx-auto px-4 h-18 flex items-center justify-between">
         {/* Logo and Company Name */}
         <div 
