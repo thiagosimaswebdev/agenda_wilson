@@ -72,6 +72,161 @@ async function startServer() {
     }
   }
 
+  // Memory Cache for dynamic live mapping resolution, to avoid scraping Google Forms on every single submission
+  let cachedMappings: Record<string, string> | null = null;
+  let cachedUrl: string | null = null;
+  let lastScrapeTime = 0;
+  const CACHE_TTL = 30 * 60 * 1000; // Cache valid for 30 minutes
+
+  // Extremely robust HTML parser that leverages multiple strategies to detect entry.XXXX keys and map them to fields
+  function extractMappingsFromHtml(html: string): { suggestedMappings: Record<string, string>, extractedFields: any[] } {
+    const suggestedMappings: Record<string, string> = {};
+    const extractedFields: any[] = [];
+    const foundEntryIds = new Set<string>();
+
+    // Strategy 1: Scan for all entry.XXXX matches anywhere in the string
+    const directEntryRegex = /(?:entry[._]?)(\d{7,11})\b/gi;
+    let directMatch;
+    while ((directMatch = directEntryRegex.exec(html)) !== null) {
+      foundEntryIds.add(directMatch[1]);
+    }
+
+    const inputRegex = /name="entry\.(\d+)"/g;
+    let inputMatch;
+    while ((inputMatch = inputRegex.exec(html)) !== null) {
+      foundEntryIds.add(inputMatch[1]);
+    }
+
+    // Strategy 2: Bracket-balanced FB_PUBLIC_APP_DATA extraction (like our advanced AdminPanel algorithm)
+    let fbAppString = "";
+    const fbIdx = html.indexOf("FB_PUBLIC_APP_DATA");
+    if (fbIdx !== -1) {
+      const startBracketIdx = html.indexOf("[", fbIdx);
+      if (startBracketIdx !== -1) {
+        let bracketCount = 0;
+        let inString = false;
+        let stringChar = '';
+        let escaped = false;
+        for (let i = startBracketIdx; i < html.length; i++) {
+          const char = html[i];
+          if (escaped) {
+            escaped = false;
+            continue;
+          }
+          if (char === '\\') {
+            escaped = true;
+            continue;
+          }
+          if (inString) {
+            if (char === stringChar) {
+              inString = false;
+            }
+            continue;
+          }
+          if (char === '"' || char === "'") {
+            inString = true;
+            stringChar = char;
+            continue;
+          }
+          if (char === '[') {
+            bracketCount++;
+          } else if (char === ']') {
+            bracketCount--;
+            if (bracketCount === 0) {
+              fbAppString = html.slice(startBracketIdx, i + 1);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (fbAppString) {
+      try {
+        const data = JSON.parse(fbAppString);
+        const fields = data[1]?.[1] || [];
+        for (const field of fields) {
+          const title = field[1];
+          const type = field[3];
+          const entryIdArray = field[4]?.[0];
+          const entryId = entryIdArray?.[0];
+          if (entryId) {
+            const strEntryId = String(entryId);
+            extractedFields.push({ id: field[0] || strEntryId, title: String(title), type, entryId: strEntryId });
+            foundEntryIds.delete(strEntryId);
+          }
+        }
+      } catch (e) {
+        console.error("Wilson Sons – Erro ao processar FB_PUBLIC_APP_DATA em tempo real:", e);
+      }
+    }
+
+    // Strategy 3: Structure-based Regex patterns inside raw HTML layout
+    const rawFieldPattern = /\[\s*(\d{7,12})\s*,\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*,[^,]*,\s*\d+\s*,\s*\[\s*\[\s*(\d{7,12})/g;
+    let rawFm;
+    while ((rawFm = rawFieldPattern.exec(html)) !== null) {
+      const fieldId = rawFm[1];
+      const title = rawFm[2].replace(/\\"/g, '"');
+      const entryId = rawFm[3];
+      if (!extractedFields.some((f) => f.entryId === entryId)) {
+        extractedFields.push({
+          id: fieldId,
+          title: title,
+          type: "Campo Estruturado",
+          entryId: entryId
+        });
+        foundEntryIds.delete(entryId);
+      }
+    }
+
+    // Strategy 4: Handle leftover detected entries by guessing from surrounding context
+    foundEntryIds.forEach((entryId) => {
+      let title = `Campo numérico entry.${entryId}`;
+      const index = html.indexOf(entryId);
+      if (index !== -1) {
+        const surrounding = html.slice(Math.max(0, index - 250), index);
+        const labelMatch = surrounding.match(/"([^"]{3,40})"/g);
+        if (labelMatch && labelMatch.length > 0) {
+          title = labelMatch[labelMatch.length - 1].replace(/"/g, '');
+        }
+      }
+      extractedFields.push({
+        id: entryId,
+        title: title,
+        type: "Detecção por Varrer HTML",
+        entryId: entryId
+      });
+    });
+
+    // Strategy 5: Translate titles and map into keys (Portuguese & English support)
+    for (const field of extractedFields) {
+      const titleLower = field.title ? String(field.title).toLowerCase() : "";
+      const key = `entry.${field.entryId}`;
+
+      if (titleLower.includes("nome") || titleLower.includes("name") || titleLower.includes("completo") || titleLower.includes("solicitante")) {
+        suggestedMappings["fullName"] = key;
+      } else if (titleLower.includes("cpf") || titleLower.includes("documento") || titleLower.includes("cadastro de pessoa")) {
+        suggestedMappings["cpf"] = key;
+      } else if (titleLower.includes("email") || titleLower.includes("e-mail") || titleLower.includes("correio") || titleLower.includes("mail")) {
+        suggestedMappings["email"] = key;
+      } else if (titleLower.includes("telefone") || titleLower.includes("celular") || titleLower.includes("whatsapp") || titleLower.includes("contato") || titleLower.includes("phone") || titleLower.includes("tel") || titleLower.includes("wpp") || titleLower.includes("cel")) {
+        suggestedMappings["phone"] = key;
+      } else if (titleLower.includes("empresa") || titleLower.includes("institu") || titleLower.includes("organiza") || titleLower.includes("company") || titleLower.includes("corporação") || titleLower.includes("órgão")) {
+        suggestedMappings["organization"] = key;
+      } else if (titleLower.includes("cidade") || titleLower.includes("estado") || titleLower.includes("origem") || titleLower.includes("uf") || titleLower.includes("city") || titleLower.includes("localidade")) {
+        suggestedMappings["cityState"] = key;
+      } else if (titleLower.includes("quantidade") || titleLower.includes("visitantes") || titleLower.includes("pessoas") || titleLower.includes("pax") || titleLower.includes("integrantes") || titleLower.includes("count") || titleLower.includes("membros") || titleLower.includes("número de")) {
+        suggestedMappings["visitorCount"] = key;
+      } else if (titleLower.includes("data") || titleLower.includes("período") || titleLower.includes("dia") || titleLower.includes("date") || titleLower.includes("agenda")) {
+        suggestedMappings["scheduledDate"] = key;
+      } else if (titleLower.includes("objetivo") || titleLower.includes("fins") || titleLower.includes("motivo") || titleLower.includes("mensagem") || titleLower.includes("detalhado") || titleLower.includes("purpose") || titleLower.includes("assunto") || titleLower.includes("justificativa")) {
+        suggestedMappings["purpose"] = key;
+      }
+    }
+
+    return { suggestedMappings, extractedFields };
+  }
+
   async function scrapeFormFieldsFromUrl(urlToScrape: string) {
     console.log(`Wilson Sons – Baixando HTML para mapear: ${urlToScrape}`);
     const response = await fetch(urlToScrape, {
@@ -83,55 +238,63 @@ async function startServer() {
       throw new Error(`Conexão frustrada com o Google Forms: ${response.status}`);
     }
     const html = await response.text();
-    
-    const match = html.match(/FB_PUBLIC_APP_DATA\s*=\s*(\[[\s\S]*?\]);/);
-    if (!match) {
-      throw new Error("Não foi possível encontrar a variável FB_PUBLIC_APP_DATA no HTML do Google Forms.");
+    return extractMappingsFromHtml(html);
+  }
+
+  // Self-healing function that merges configured settings with live-scraped keys so the site auto-repairs itself
+  async function getOrResolveMappings(googleFormsUrl: string, fallbackMappings: Record<string, string>): Promise<Record<string, string>> {
+    const now = Date.now();
+    // 1. Check if we have dynamic mappings cached in memory
+    if (cachedMappings && cachedUrl === googleFormsUrl && (now - lastScrapeTime < CACHE_TTL)) {
+      console.log("Wilson Sons – Usando mapeamentos resolve-cache em memória");
+      return { ...fallbackMappings, ...cachedMappings };
     }
-    
-    const data = JSON.parse(match[1]);
-    const fields = data[1]?.[1] || [];
-    const extractedFields: any[] = [];
-    const suggestedMappings: Record<string, string> = {};
-    
-    for (const field of fields) {
-      const id = field[0];
-      const title = field[1];
-      const type = field[3];
-      const entryIdArray = field[4]?.[0];
-      const entryId = entryIdArray?.[0];
-      
-      if (entryId) {
-        extractedFields.push({ id, title, type, entryId });
-        const key = `entry.${entryId}`;
-        const titleLower = title ? String(title).toLowerCase() : "";
-        if (titleLower.includes("nome") || titleLower.includes("name")) {
-          suggestedMappings["fullName"] = key;
-        } else if (titleLower.includes("cpf") || titleLower.includes("documento")) {
-          suggestedMappings["cpf"] = key;
-        } else if (titleLower.includes("email") || titleLower.includes("e-mail")) {
-          suggestedMappings["email"] = key;
-        } else if (titleLower.includes("telefone") || titleLower.includes("celular") || titleLower.includes("whatsapp") || titleLower.includes("contato") || titleLower.includes("phone")) {
-          suggestedMappings["phone"] = key;
-        } else if (titleLower.includes("empresa") || titleLower.includes("institu") || titleLower.includes("organiza") || titleLower.includes("company")) {
-          suggestedMappings["organization"] = key;
-        } else if (titleLower.includes("cidade") || titleLower.includes("estado") || titleLower.includes("origem") || titleLower.includes("uf") || titleLower.includes("city")) {
-          suggestedMappings["cityState"] = key;
-        } else if (titleLower.includes("quantidade") || titleLower.includes("visitantes") || titleLower.includes("pessoas") || titleLower.includes("pax") || titleLower.includes("integrantes") || titleLower.includes("count")) {
-          suggestedMappings["visitorCount"] = key;
-        } else if (titleLower.includes("data") || titleLower.includes("período") || titleLower.includes("dia") || titleLower.includes("date")) {
-          suggestedMappings["scheduledDate"] = key;
-        } else if (titleLower.includes("objetivo") || titleLower.includes("fins") || titleLower.includes("motivo") || titleLower.includes("mensagem") || titleLower.includes("detalhado") || titleLower.includes("purpose")) {
-          suggestedMappings["purpose"] = key;
+
+    try {
+      console.log(`Wilson Sons – Resolvendo mapeamentos em tempo real: ${googleFormsUrl}`);
+      const data = await scrapeFormFieldsFromUrl(googleFormsUrl);
+      const scraped = data.suggestedMappings;
+      const foundCount = Object.keys(scraped).length;
+
+      if (foundCount > 0) {
+        console.log(`Wilson Sons – Mapeamento autofix resolvido! Detectados ${foundCount} campos no formulário ao vivo.`);
+        cachedMappings = scraped;
+        cachedUrl = googleFormsUrl;
+        lastScrapeTime = now;
+
+        // Save resolving dynamic cache to disk so it stays persistent on next fast request
+        const mergedMappings = { ...fallbackMappings };
+        for (const [key, value] of Object.entries(scraped)) {
+          if (value && (!mergedMappings[key] || mergedMappings[key].startsWith("entry.dummy"))) {
+            mergedMappings[key] = value;
+          }
         }
+        
+        // Auto persistent save!
+        saveConfig({ googleFormsUrl, mappings: mergedMappings });
+        return mergedMappings;
       }
+    } catch (err: any) {
+      console.warn("Wilson Sons [ALERTA] – Falha na resolução dinâmica de mapeamentos:", err.message);
     }
-    return { extractedFields, suggestedMappings };
+
+    // Default return fallback mapped fields from disk if real-time fetch fails
+    return fallbackMappings;
   }
 
   // Endpoints to get/post Google Forms Link configurations
-  app.get("/api/config", (req, res) => {
-    return res.json(readConfig());
+  app.get("/api/config", async (req, res) => {
+    const config = readConfig();
+    try {
+      // Always try to dynamically resolve or enrich mapping before returning
+      const resolvedMappings = await getOrResolveMappings(config.googleFormsUrl, config.mappings);
+      return res.json({
+        googleFormsUrl: config.googleFormsUrl,
+        mappings: resolvedMappings
+      });
+    } catch (e) {
+      return res.json(config);
+    }
   });
 
   app.post("/api/config", (req, res) => {
@@ -140,6 +303,12 @@ async function startServer() {
       return res.status(400).json({ success: false, error: "A URL do Google Forms é obrigatória." });
     }
     const success = saveConfig({ googleFormsUrl, mappings: mappings || {} });
+    
+    // Invalidate/reset the memory cache upon explicit updates
+    cachedMappings = mappings || null;
+    cachedUrl = googleFormsUrl;
+    lastScrapeTime = Date.now();
+
     return res.json({ success });
   });
 
@@ -188,7 +357,10 @@ async function startServer() {
 
     try {
       const config = readConfig();
-      const mappings = config.mappings;
+      
+      // Dynamic, real-time matching resolve! Guarantees the mappings are always fresh and active
+      const mappings = await getOrResolveMappings(config.googleFormsUrl, config.mappings);
+      
       const formParams = new URLSearchParams();
       
       const payloadMap: Record<string, string> = {
