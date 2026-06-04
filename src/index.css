@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-marine-950: #020813;
+  --color-marine-900: #061127;
+  --color-marine-800: #0a1f3d;
+  --color-marine-700: #0f3260;
+  --color-marine-600: #1b4984;
+  --color-marine-505: #2c63a9;
+  --color-orange-500: #ff5c00;
+  --color-orange-600: #e04f00;
+  --color-orange-400: #ff7d33;
+}
+
+/* Custom styles for corporate maritime look and smooth transitions */
+html, body {
+  background-color: #f8fafc;
+  color: #1e293b;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Smooth custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #020813;
+}
+::-webkit-scrollbar-thumb {
+  background: #1b4984;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #ff5c00;
+}
+
+/* Custom class for glowing borders */
+.glow-border {
+  box-shadow: 0 0 15px rgba(27, 73, 132, 0.2);
+  border: 1px solid rgba(27, 73, 132, 0.4);
+}
+
+.glow-orange {
+  box-shadow: 0 0 15px rgba(255, 92, 0, 0.15);
+  border: 1px solid rgba(255, 92, 0, 0.3);
+}
+

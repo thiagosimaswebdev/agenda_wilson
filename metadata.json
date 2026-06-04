@@ -1,0 +1,6 @@
+{
+  "name": "Agendamento de Visitas Wilson Sons",
+  "description": "Plataforma de conscientização de segurança e agendamento de visitas institucionais para a Wilson Sons.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
