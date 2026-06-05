@@ -17,18 +17,20 @@ O sistema segue um fluxo linear e seguro para garantir conformidade antes de qua
 [ Google Planilha ] ◄── [ 4. Envio Seguro (Proxy) ] ◄── [ 3. Formulário de Cadastro ]
 ```
 
-1. **Acolhimento (Tela Inicial):** Apresentação do portal com a identidade visual corporativa.
-2. **Normas de Segurança & EPIs (Obrigatório):** Apresentação visual dos EPIs necessários e leitura das diretrizes de segurança portuária. O visitante precisa aceitar digitalmente os termos para desbloquear o formulário.
+1. **Acolhimento (Tela Inicial):** Apresentação do portal com a identidade visual corporativa e acolhedora da Wilson Sons.
+2. **Normas de Segurança & EPIs (Obrigatório):** Apresentação visual dos EPIs necessários e leitura das diretrizes de segurança portuária. O visitante precisa dar o aceite digital para desbloquear o formulário de cadastro.
 3. **Formulário de Cadastro:** Preenchimento de informações essenciais (Nome, CPF, E-mail, Telefone, Organização, Cidade/Estado, Nº de Visitantes, Data/Hora e Objetivo).
-4. **Proxy & Google Planilhas:** O backend processa a solicitação de forma segura e envia os dados diretamente para a planilha associada do Google Forms.
+4. **Proxy & Google Planilhas:** O backend processa a solicitação de forma segura e envia os dados diretamente para a planilha associada do Google Forms, de maneira transparente e sem expor credenciais no cliente.
 
 ---
 
-## 🛠️ Principais Recursos
+## 🛠️ Principais Recursos e Automações Recentes
 
-- **🦺 Conformidade de Segurança:** Bloqueio preventivo que impede visitantes comuns de acessarem o formulário direto antes do termo de aceitação de EPIs.
-- **⚙️ Painel de Administração Persistente:** Ambiente seguro para administradores visualizarem o histórico de visitas, mapearem campos do Google Forms e configurarem rotas de forma ágil, com sessão de login persistente e opção de logout dedicada.
-- **🔌 Integração Automatizada:** Mapeador automático que captura as chaves internas do formulário a partir do código extraído do Google Forms.
+- **🦺 Conformidade de Segurança:** Sistema rigoroso de bloqueio preventivo que impede visitantes comuns de acessarem o formulário direto antes do termo de aceitação de EPIs e leitura das diretrizes de segurança portuária.
+- **⚡ Integração e Funcionamento Completo (Frente de Produção):** Correção do encadeamento assíncrono no formulário da interface pública de agendamento (`StepForm`), unificando o fluxo de envio para operar com a mesma robustez e persistência do simulador de testes da área administrativa.
+- **📆 Formatação de Data Inteligente (Multi-partes):** O backend realiza a tradução dinâmica e separação da data selecionada em campos específicos compatíveis com o formato nativo do Google Forms (`_year`, `_month`, `_day`), corrigindo a barreira de sincronização que impedia a inserção das datas corretas e gerava envios vazios ou falhas de interação.
+- **🔄 Resolução Automática e Autocura de Campos (Self-Healing):** Algoritmo inteligente que varre o Google Forms ao vivo em tempo real para recuperar mapeamentos caso estejam desalinhados na memória cache (TTL) ou local, realizando mesclas inteligentes e protegendo mapeamentos válidos para preservar a integridade estrutural da planilha.
+- **⚙️ Painel de Administração Persistente:** Ambiente robusto para gerenciamento das visitas solicitadas, controle operacional de emails de feedback automatizados, configuração ágil da URL do Google Forms e sessões administrativas de login altamente persistentes com logout expresso.
 
 ---
 

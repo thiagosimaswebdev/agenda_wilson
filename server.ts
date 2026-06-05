@@ -243,6 +243,18 @@ async function startServer() {
 
   // Self-healing function that merges configured settings with live-scraped keys so the site auto-repairs itself
   async function getOrResolveMappings(googleFormsUrl: string, fallbackMappings: Record<string, string>): Promise<Record<string, string>> {
+    // Check if fallbackMappings already has all the required keys well-mapped
+    const requiredKeys = ["fullName", "cpf", "email", "phone", "organization", "cityState", "visitorCount", "scheduledDate", "purpose"];
+    const hasAllKeysMapped = requiredKeys.every(key => {
+      const val = fallbackMappings[key];
+      return val && val.startsWith("entry.") && !val.startsWith("entry.dummy");
+    });
+
+    if (hasAllKeysMapped) {
+      console.log("Wilson Sons – Todos os campos já possuem mapeamento válido no disco. Pulando o scraping em tempo real para máxima velocidade e confiabilidade.");
+      return fallbackMappings;
+    }
+
     const now = Date.now();
     // 1. Check if we have dynamic mappings cached in memory
     if (cachedMappings && cachedUrl === googleFormsUrl && (now - lastScrapeTime < CACHE_TTL)) {
@@ -265,13 +277,16 @@ async function startServer() {
         // Save resolving dynamic cache to disk so it stays persistent on next fast request
         const mergedMappings = { ...fallbackMappings };
         for (const [key, value] of Object.entries(scraped)) {
-          if (value && (!mergedMappings[key] || mergedMappings[key].startsWith("entry.dummy"))) {
+          if (value && (!mergedMappings[key] || mergedMappings[key].startsWith("entry.dummy") || mergedMappings[key] === "")) {
             mergedMappings[key] = value;
           }
         }
         
-        // Auto persistent save!
-        saveConfig({ googleFormsUrl, mappings: mergedMappings });
+        // Auto persistent save ONLY if we didn't wipe out any correct mappings with empty entries
+        const hasNowMappedAll = requiredKeys.every(key => mergedMappings[key] && mergedMappings[key] !== "");
+        if (hasNowMappedAll) {
+          saveConfig({ googleFormsUrl, mappings: mergedMappings });
+        }
         return mergedMappings;
       }
     } catch (err: any) {
@@ -377,6 +392,16 @@ async function startServer() {
 
       for (const [fieldKey, formKey] of Object.entries(mappings)) {
         if (formKey && payloadMap[fieldKey] !== undefined) {
+          if (fieldKey === "scheduledDate" && payloadMap[fieldKey]) {
+            const dateVal = payloadMap[fieldKey]; // "YYYY-MM-DD"
+            const dateParts = dateVal.split("-");
+            if (dateParts.length === 3) {
+              const [yr, mo, dy] = dateParts;
+              formParams.append(`${formKey}_year`, yr);
+              formParams.append(`${formKey}_month`, mo);
+              formParams.append(`${formKey}_day`, dy);
+            }
+          }
           formParams.append(String(formKey), payloadMap[fieldKey]);
         }
       }

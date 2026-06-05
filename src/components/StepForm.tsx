@@ -97,7 +97,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
       }
 
       // 2. Direct Sync to user's Google Forms Database
-      await fetch("/api/submit-to-google-form", {
+      const syncResponse = await fetch("/api/submit-to-google-form", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -113,27 +113,38 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
         })
       });
 
-    } catch (err) {
+      if (!syncResponse.ok) {
+        const errorData = await syncResponse.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `Erro de rede do servidor (Status: ${syncResponse.status})`);
+      }
+
+      const syncResult = await syncResponse.json();
+      if (!syncResult.success) {
+        throw new Error(syncResult.message || syncResult.error || "A sincronização direta com o Google Forms foi recusada.");
+      }
+
+      // Call callback to add request with computed AI recommendations included
+      onAddRequest({
+        fullName,
+        cpf,
+        email,
+        phone,
+        organization,
+        cityState,
+        visitorCount: Number(visitorCount),
+        scheduledDate,
+        purpose,
+        aiSuggestions: aiSuggestions || undefined
+      });
+
+      setSubmittedRequest(true);
+
+    } catch (err: any) {
       console.error("Error integrating with Google Forms backend:", err);
+      setErrorMsg(err.message || "Houve uma falha na integração com o lote do Google Forms. Por favor, tente novamente ou verifique as configurações de mapeamento de chaves no painel Administrativo.");
     } finally {
       setIsAnalyzing(false);
     }
-
-    // Call callback to add request with computed AI recommendations included
-    onAddRequest({
-      fullName,
-      cpf,
-      email,
-      phone,
-      organization,
-      cityState,
-      visitorCount: Number(visitorCount),
-      scheduledDate,
-      purpose,
-      aiSuggestions: aiSuggestions || undefined
-    });
-
-    setSubmittedRequest(true);
   };
 
   const resetForm = () => {
