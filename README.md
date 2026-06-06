@@ -94,17 +94,3 @@ npm start
 
 ---
 
-## 📝 Guia de Commits em Português para Publicar no GitHub
-
-Se você deseja publicar suas atualizações no GitHub utilizando a aba integrada da plataforma, utilize estes modelos de commit bem-estruturados em português:
-
-```bash
-# Commit Geral da Nova Identidade Visual:
-git commit -m "style(visual): ajusta todos os botões e componentes para o padrão de cores e logotipo clássico Wilson Sons"
-
-# Commit das Atualizações do Carrossel e Textos:
-git commit -m "feat(home): restaura textos originais de agendamento de visitas com carrossel dinâmico da prática portuária"
-
-# Commit de Melhoria de Fluxo:
-git commit -m "feat(flow): refinamento das validações das etapas de segurança, crachá portátil e terminal de portaria"
-```
