@@ -109,7 +109,11 @@ const FEEDBACK_STORAGE_KEY = "wilson_sons_feedbacks";
 export function getStoredRequests(): VisitRequest[] {
   const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
   if (!stored) {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(INITIAL_MOCK_REQUESTS));
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(INITIAL_MOCK_REQUESTS));
+    } catch (e) {
+      console.warn("Falha ao salvar solicitações iniciais no localStorage:", e);
+    }
     return INITIAL_MOCK_REQUESTS;
   }
   try {
@@ -120,13 +124,21 @@ export function getStoredRequests(): VisitRequest[] {
 }
 
 export function saveStoredRequests(requests: VisitRequest[]): void {
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(requests));
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(requests));
+  } catch (e) {
+    console.error("Erro ao salvar solicitações no localStorage (Cota de disco cheia):", e);
+  }
 }
 
 export function getStoredFeedbacks(): FeedbackResponse[] {
   const stored = localStorage.getItem(FEEDBACK_STORAGE_KEY);
   if (!stored) {
-    localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(INITIAL_MOCK_FEEDBACKS));
+    try {
+      localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(INITIAL_MOCK_FEEDBACKS));
+    } catch (e) {
+      console.warn("Falha ao salvar feedbacks iniciais no localStorage:", e);
+    }
     return INITIAL_MOCK_FEEDBACKS;
   }
   try {
@@ -137,5 +149,9 @@ export function getStoredFeedbacks(): FeedbackResponse[] {
 }
 
 export function saveStoredFeedbacks(feedbacks: FeedbackResponse[]): void {
-  localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(feedbacks));
+  try {
+    localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(feedbacks));
+  } catch (e) {
+    console.error("Erro ao salvar feedbacks no localStorage (Cota de disco cheia):", e);
+  }
 }

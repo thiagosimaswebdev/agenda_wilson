@@ -12,9 +12,15 @@
   --color-marine-700: #0f3260;
   --color-marine-600: #1b4984;
   --color-marine-505: #2c63a9;
-  --color-orange-500: #ff5c00;
-  --color-orange-600: #e04f00;
-  --color-orange-400: #ff7d33;
+  --color-orange-50: rgba(0, 174, 214, 0.08);
+  --color-orange-100: rgba(0, 174, 214, 0.15);
+  --color-orange-150: rgba(0, 174, 214, 0.22);
+  --color-orange-200: rgba(0, 174, 214, 0.3);
+  --color-orange-400: #00AED6;
+  --color-orange-500: #00AED6;
+  --color-orange-600: #003366;
+  --color-orange-650: #002244;
+  --color-orange-700: #002244;
 }
 
 /* Custom styles for corporate maritime look and smooth transitions */
@@ -34,21 +40,41 @@ html, body {
   background: #020813;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1b4984;
+  background: #003366;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #ff5c00;
+  background: #00AED6;
 }
 
 /* Custom class for glowing borders */
 .glow-border {
-  box-shadow: 0 0 15px rgba(27, 73, 132, 0.2);
-  border: 1px solid rgba(27, 73, 132, 0.4);
+  box-shadow: 0 0 15px rgba(0, 51, 102, 0.2);
+  border: 1px solid rgba(0, 51, 102, 0.4);
 }
 
 .glow-orange {
-  box-shadow: 0 0 15px rgba(255, 92, 0, 0.15);
-  border: 1px solid rgba(255, 92, 0, 0.3);
+  box-shadow: 0 0 15px rgba(0, 174, 214, 0.15);
+  border: 1px solid rgba(0, 174, 214, 0.3);
+}
+
+/* Continuous Horizontal Marquee Infinite Loop animation */
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 30s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
 }
 

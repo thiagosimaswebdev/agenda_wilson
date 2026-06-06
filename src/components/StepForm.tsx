@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Ship, ShieldCheck, Mail, Phone, User, Building, MapPin, Users, Calendar, FileText, Send, CheckCircle2, ArrowLeft, Lock } from "lucide-react";
+import { Ship, ShieldCheck, Mail, Phone, User, Building, MapPin, Users, Calendar, FileText, Send, CheckCircle2, ArrowLeft, Lock, Camera, Upload } from "lucide-react";
 import { VisitRequest, VisitStatus } from "../types";
 
 interface StepFormProps {
@@ -21,6 +21,96 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
   const [visitorCount, setVisitorCount] = useState<number>(1);
   const [scheduledDate, setScheduledDate] = useState("");
   const [purpose, setPurpose] = useState("");
+
+  // Camera & Portrait Photo Capture State
+  const [visitorPhoto, setVisitorPhoto] = useState<string>("");
+  const [showWebcam, setShowWebcam] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 325, height: 260, facingMode: "user" }
+      });
+      setCameraStream(stream);
+      setShowWebcam(true);
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (err: any) {
+      console.error("Camera access error:", err);
+      alert("Não foi possível acessar a câmera do dispositivo. Por favor, faça o upload de uma foto do seu computador.");
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+    setShowWebcam(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 300;
+      canvas.height = 360;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/png");
+        setVisitorPhoto(dataUrl);
+        stopCamera();
+      }
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const rawResult = reader.result as string;
+        
+        // Compress the uploaded image to ensure a lightweight base64 payload (<50KB)
+        // to prevent 413 Payload Too Large / Nginx proxy blocks under Cloud Run.
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          // target size for visitor card photo: 300x360 px
+          canvas.width = 300;
+          canvas.height = 360;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            // center crop & cover
+            const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
+            const x = (canvas.width / 2) - (img.width / 2) * scale;
+            const y = (canvas.height / 2) - (img.height / 2) * scale;
+            
+            // Draw
+            ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+            
+            // Get compressed jpeg data URL (0.7 quality)
+            const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
+            setVisitorPhoto(compressedDataUrl);
+          } else {
+            // Fallback to raw if canvas ctx is unavailable
+            setVisitorPhoto(rawResult);
+          }
+        };
+        img.onerror = () => {
+          // Fallback to raw if it's not a valid format
+          setVisitorPhoto(rawResult);
+        };
+        img.src = rawResult;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const [submittedRequest, setSubmittedRequest] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
@@ -75,6 +165,18 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
     setIsAnalyzing(true);
     let aiSuggestions = "";
 
+    const getSafeJson = async (res: Response, endpoint: string) => {
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(`O servidor retornou uma página de erro (HTML) em vez de dados (JSON) para a rota ${endpoint} (Código: ${res.status}). Por favor, certifique-se de que o backend foi iniciado corretamente.`);
+      }
+      try {
+        return await res.json();
+      } catch (e) {
+        throw new Error(`Erro ao decodificar a resposta de dados do endpoint ${endpoint}.`);
+      }
+    };
+
     try {
       // 1. Core AI Objective Analysis
       const response = await fetch("/api/analyze-objective", {
@@ -90,8 +192,12 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
       });
 
       if (response.ok) {
-        const data = await response.json();
-        aiSuggestions = data.suggestions || "";
+        try {
+          const data = await getSafeJson(response, "/api/analyze-objective");
+          aiSuggestions = data.suggestions || "";
+        } catch (e) {
+          console.warn("AI endpoint response could not be parsed safely, proceeding with request without suggestions", e);
+        }
       } else {
         console.warn("AI endpoint returned error code, proceeding with request without suggestions");
       }
@@ -113,14 +219,23 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
         })
       });
 
+      let syncResult;
       if (!syncResponse.ok) {
-        const errorData = await syncResponse.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || `Erro de rede do servidor (Status: ${syncResponse.status})`);
+        let errorMsgDetails = `Erro de rede do servidor (Status: ${syncResponse.status})`;
+        try {
+          const contentType = syncResponse.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const errorData = await syncResponse.json();
+            errorMsgDetails = errorData.message || errorData.error || errorMsgDetails;
+          }
+        } catch (e) {}
+        throw new Error(errorMsgDetails);
+      } else {
+        syncResult = await getSafeJson(syncResponse, "/api/submit-to-google-form");
       }
 
-      const syncResult = await syncResponse.json();
-      if (!syncResult.success) {
-        throw new Error(syncResult.message || syncResult.error || "A sincronização direta com o Google Forms foi recusada.");
+      if (!syncResult || !syncResult.success) {
+        throw new Error(syncResult ? (syncResult.message || syncResult.error) : "A sincronização direta com o Google Forms foi recusada.");
       }
 
       // Call callback to add request with computed AI recommendations included
@@ -134,7 +249,8 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
         visitorCount: Number(visitorCount),
         scheduledDate,
         purpose,
-        aiSuggestions: aiSuggestions || undefined
+        aiSuggestions: aiSuggestions || undefined,
+        visitorPhoto: visitorPhoto || undefined
       });
 
       setSubmittedRequest(true);
@@ -168,7 +284,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
     return (
       <div className="max-w-2xl mx-auto py-16 text-center space-y-6 animate-fade-in">
         <div className="bg-red-50 border border-red-200/80 p-8 rounded-2xl shadow-sm space-y-4">
-          <Lock className="h-16 w-16 text-orange-500 mx-auto animate-pulse" />
+          <Lock className="h-16 w-16 text-[#00AED6] mx-auto animate-pulse" />
           <h2 className="font-display text-2xl font-bold text-red-800">Etapa de Segurança Pendente</h2>
           <p className="text-slate-600 text-sm">
             Para solicitar uma visita às instalações portuárias ou ao estaleiro da Wilson Sons, você deve obrigatoriamente assistir e validar o vídeo de conscientização de EPI e aceitar as normas de segurança.
@@ -176,7 +292,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
           <div className="pt-4">
             <button
               onClick={onBackToSafety}
-              className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg shadow-sm transition-transform hover:scale-102 flex items-center justify-center gap-2 mx-auto"
+              className="px-6 py-3 bg-[#003366] hover:bg-[#002244] text-white font-bold rounded-lg shadow-sm transition-transform hover:scale-102 flex items-center justify-center gap-2 mx-auto cursor-pointer"
             >
               <ArrowLeft className="h-4 w-4" />
               Preencher Declaração de Segurança
@@ -192,7 +308,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
       <div className="max-w-2xl mx-auto py-16 text-center space-y-6 animate-fade-in">
         <div className="bg-white border border-slate-200 p-10 sm:p-12 rounded-2xl shadow-md space-y-6 flex flex-col items-center">
           <div className="relative flex items-center justify-center">
-            <div className="w-20 h-20 border-4 border-slate-100 border-t-orange-500 rounded-full animate-spin"></div>
+            <div className="w-20 h-20 border-4 border-slate-100 border-t-[#00AED6] rounded-full animate-spin"></div>
             <Ship className="h-8 w-8 text-[#003366] absolute animate-bounce" />
           </div>
           <div className="space-y-2">
@@ -204,8 +320,8 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
             </p>
           </div>
           <div className="bg-slate-50 border border-slate-155 p-4 rounded-xl text-left text-xs text-slate-600 max-w-md w-full space-y-2.5">
-            <p className="flex items-center gap-1.5 font-bold text-orange-600 text-[10px] uppercase font-mono">
-              <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>
+            <p className="flex items-center gap-1.5 font-bold text-[#003366] text-[10px] uppercase font-mono">
+              <span className="w-2 h-2 rounded-full bg-[#00AED6] animate-ping"></span>
               Prompt de IA: Processando Objetivo de Visita
             </p>
             <div className="text-slate-650 italic font-medium leading-relaxed bg-white border border-slate-100 p-2.5 rounded-lg text-[11px]">
@@ -227,7 +343,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
       {/* Step Indicator and Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <span className="text-orange-600 font-mono text-xs font-bold uppercase tracking-wider block mb-1">
+          <span className="text-[#003366] font-mono text-xs font-bold uppercase tracking-wider block mb-1">
             ETAPA 3 – FORMULÁRIO DE AGENDAMENTO
           </span>
           <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-[#003366]">
@@ -252,8 +368,8 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
             </p>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-left text-xs text-slate-650 max-w-xl mx-auto space-y-2">
-            <div className="flex items-center gap-1.5 font-bold font-mono text-orange-600 uppercase text-[10px]">
+          <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-left text-xs text-slate-655 max-w-xl mx-auto space-y-2">
+            <div className="flex items-center gap-1.5 font-bold font-mono text-[#003366] uppercase text-[10px]">
               <Ship className="h-3 w-3" />
               INTEGRAÇÃO ATIVA COM GOOGLE FORMS E GOOGLE SHEETS
             </div>
@@ -304,7 +420,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
                 placeholder="Seu nome completo"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all font-medium"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all font-medium"
               />
             </div>
 
@@ -321,7 +437,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
                 placeholder="000.000.000-00"
                 value={cpf}
                 onChange={handleCpfChange}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all font-mono font-medium"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all font-mono font-medium"
               />
             </div>
 
@@ -338,7 +454,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
                 placeholder="exemplo@empresa.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all font-medium"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all font-medium"
               />
             </div>
 
@@ -355,7 +471,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
                 placeholder="(00) 00000-0000"
                 value={phone}
                 onChange={handlePhoneChange}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all font-mono font-medium"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all font-mono font-medium"
               />
             </div>
 
@@ -372,7 +488,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
                 placeholder="Ex: UFRJ, Logística S.A."
                 value={organization}
                 onChange={(e) => setOrganization(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all font-medium"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all font-medium"
               />
             </div>
 
@@ -389,7 +505,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
                 placeholder="Ex: Rio de Janeiro - RJ"
                 value={cityState}
                 onChange={(e) => setCityState(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all font-medium"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all font-medium"
               />
             </div>
 
@@ -407,7 +523,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
                 required
                 value={visitorCount}
                 onChange={(e) => setVisitorCount(Number(e.target.value))}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all font-medium"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all font-medium"
               />
             </div>
 
@@ -423,10 +539,113 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
                 required
                 value={scheduledDate}
                 onChange={(e) => setScheduledDate(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all font-mono font-medium"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all font-mono font-medium"
               />
             </div>
 
+          </div>
+
+          {/* Photograph Capture Component section */}
+          <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+            <div className="space-y-1">
+              <h4 className="font-display font-extrabold text-sm text-[#003366] flex items-center gap-1.5">
+                <Camera className="h-4 w-4 text-[#00AED6]" />
+                Fotografia para Credencial de Acesso (Recomendado)
+              </h4>
+              <p className="text-slate-500 text-xs">
+                Sua foto será impressa na credencial virtual. Você pode tirar uma foto agora ou fazer o upload de um arquivo.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+              {/* Photo Input options */}
+              <div className="flex flex-col gap-3 justify-center">
+                {showWebcam ? (
+                  <div className="space-y-2 text-center">
+                    <div className="relative bg-[#003366] border border-slate-300 rounded-xl overflow-hidden aspect-5/4 max-w-[280px] mx-auto shadow-sm">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        className="w-full h-full object-cover scale-x-[-1]"
+                      />
+                    </div>
+                    <div className="flex justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={capturePhoto}
+                        className="px-3.5 py-1.5 bg-[#003366] hover:bg-[#002244] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        Tirar Foto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={stopCamera}
+                        className="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="w-full py-2.5 px-4 bg-[#003366]/5 hover:bg-[#003366]/10 border border-[#003366]/15 hover:border-[#003366]/30 text-[#003366] rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Camera className="h-4 w-4" />
+                      Capturar com Webcam
+                    </button>
+                    
+                    <div className="relative flex items-center justify-center py-1">
+                      <span className="text-[10px] text-slate-400 font-mono font-bold uppercase bg-slate-50 px-2.5 z-10">OU</span>
+                      <div className="absolute inset-x-0 h-[1px] bg-slate-200"></div>
+                    </div>
+
+                    <label className="w-full py-2.5 px-4 bg-white hover:bg-slate-100 border border-slate-250 text-slate-700 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center">
+                      <Upload className="h-4 w-4" />
+                      Fazer Upload de Foto
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Portrait Preview Box */}
+              <div className="flex flex-col items-center justify-center border border-dashed border-slate-250 p-4 rounded-xl min-h-[160px] bg-white">
+                {visitorPhoto ? (
+                  <div className="text-center space-y-2.5">
+                    <div className="relative w-28 h-32 mx-auto bg-slate-100 border-2 border-emerald-500 rounded-lg overflow-hidden shadow-sm">
+                      <img
+                        src={visitorPhoto}
+                        alt="Foto do Agendado"
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVisitorPhoto("")}
+                      className="text-red-500 hover:text-red-650 font-semibold text-xs transition-colors cursor-pointer block mx-auto"
+                    >
+                      Remover foto
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center text-slate-400 space-y-1">
+                    <User className="h-10 w-10 mx-auto text-slate-300" />
+                    <p className="text-xs font-bold uppercase font-mono text-slate-500 leading-snug">Foto Pendente</p>
+                    <p className="text-[10px] text-slate-400">Nenhuma foto salva ainda</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Purpose */}
@@ -442,7 +661,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
               placeholder="Explique o intuito de sua visita (Ex: Visita técnica com 10 estudantes do 5º período do curso de Operações, visita operacional para conferência de containeres, etc.)"
               value={purpose}
               onChange={(e) => setPurpose(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all resize-none font-medium"
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#00AED6] focus:ring-2 focus:ring-[#00AED6]/20 focus:bg-white transition-all resize-none font-medium"
             />
           </div>
 
@@ -466,7 +685,7 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
 
             <button
               type="submit"
-              className="px-6 py-3.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-md hover:scale-[1.01]"
+              className="px-6 py-3.5 bg-[#003366] hover:bg-[#002244] text-white text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-md hover:scale-[1.01] cursor-pointer"
             >
               <Send className="h-4 w-4" />
               <span>Enviar Solicitação Integrada</span>

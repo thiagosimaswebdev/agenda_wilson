@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { VisitRequest, VisitStatus, FeedbackResponse, DashboardStats } from "../types";
+import { VisitRequest, VisitStatus, FeedbackResponse, DashboardStats, MailLog } from "../types";
+import { VirtualBadge } from "./VirtualBadge";
 import { 
   Building, 
   Calendar, 
@@ -20,6 +21,7 @@ import {
   Phone, 
   Mail, 
   MapPin, 
+  ChevronLeft,
   ChevronRight, 
   RotateCcw,
   BookOpen,
@@ -30,7 +32,9 @@ import {
   MessageSquare,
   Sparkles,
   Send,
-  ExternalLink
+  ExternalLink,
+  QrCode,
+  Camera
 } from "lucide-react";
 
 interface AdminPanelProps {
@@ -41,6 +45,8 @@ interface AdminPanelProps {
   feedbacks: FeedbackResponse[];
   setFeedbacks: React.Dispatch<React.SetStateAction<FeedbackResponse[]>>;
   setRequests: React.Dispatch<React.SetStateAction<VisitRequest[]>>;
+  mailLogs: MailLog[];
+  setMailLogs: React.Dispatch<React.SetStateAction<MailLog[]>>;
   isAuthenticated: boolean;
   setIsAuthenticated: (val: boolean) => void;
 }
@@ -53,6 +59,8 @@ export function AdminPanel({
   feedbacks,
   setFeedbacks,
   setRequests,
+  mailLogs,
+  setMailLogs,
   isAuthenticated,
   setIsAuthenticated
 }: AdminPanelProps) {
@@ -66,14 +74,111 @@ export function AdminPanel({
   const [orgFilter, setOrgFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("");
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  // Reset page to 1 when filters actioned
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, orgFilter, dateFilter]);
+
   // Details pop-up state
   const [selectedRequest, setSelectedRequest] = useState<VisitRequest | null>(null);
+  const [viewingBadge, setViewingBadge] = useState<VisitRequest | null>(null);
   const [rejectionInput, setRejectionInput] = useState("");
   const [isRejecting, setIsRejecting] = useState(false);
 
   // Active view tab inside admin
-  const [activeAdminTab, setActiveAdminTab] = useState<"solicitations" | "feedbacks" | "automation" | "google_forms">("solicitations");
+  const [activeAdminTab, setActiveAdminTab] = useState<"solicitations" | "feedbacks" | "automation" | "google_forms" | "gate_validator" | "dispatched_emails">("solicitations");
+  const [selectedMailId, setSelectedMailId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"html" | "text">("html");
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // Portaria QR Simulation scan structure
+  const [scanResult, setScanResult] = useState<{
+    status: "allow" | "deny" | "pending";
+    request: VisitRequest;
+  } | null>(null);
+
+  const synthesizeBeep = (type: "success" | "failure") => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (!audioCtx) return;
+
+      if (type === "success") {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1150, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.15);
+      } else {
+        const osc1 = audioCtx.createOscillator();
+        const gain1 = audioCtx.createGain();
+        osc1.connect(gain1);
+        gain1.connect(audioCtx.destination);
+        osc1.type = "sawtooth";
+        osc1.frequency.setValueAtTime(140, audioCtx.currentTime);
+        gain1.gain.setValueAtTime(0.09, audioCtx.currentTime);
+        gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18);
+        osc1.start(audioCtx.currentTime);
+        osc1.stop(audioCtx.currentTime + 0.2);
+
+        setTimeout(() => {
+          const osc2 = audioCtx.createOscillator();
+          const gain2 = audioCtx.createGain();
+          osc2.connect(gain2);
+          gain2.connect(audioCtx.destination);
+          osc2.type = "sawtooth";
+          osc2.frequency.setValueAtTime(140, audioCtx.currentTime);
+          gain2.gain.setValueAtTime(0.09, audioCtx.currentTime);
+          gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18);
+          osc2.start(audioCtx.currentTime);
+          osc2.stop(audioCtx.currentTime + 0.2);
+        }, 220);
+      }
+    } catch (err) {
+      console.warn("AudioContext beep simulation blocked by browser sandbox policy or not supported:", err);
+    }
+  };
+
+  const handleScanValidation = (id: string | null) => {
+    if (!id) return;
+    const cleanId = id.trim().toUpperCase();
+    const match = requests.find(r => r.id.toUpperCase() === cleanId);
+    
+    if (!match) {
+      synthesizeBeep("failure");
+      alert(`Erro: QR Code com credencial "${cleanId}" não localizado na planilha sincronizada.`);
+      setScanResult(null);
+      return;
+    }
+
+    if (match.status === VisitStatus.APPROVED) {
+      synthesizeBeep("success");
+      setScanResult({
+        status: "allow",
+        request: match
+      });
+    } else if (match.status === VisitStatus.PENDING) {
+      synthesizeBeep("failure");
+      setScanResult({
+        status: "pending",
+        request: match
+      });
+    } else {
+      synthesizeBeep("failure");
+      setScanResult({
+        status: "deny",
+        request: match
+      });
+    }
+  };
 
   // Dynamic feedback form simulation state
   const [showFeedbackSimulator, setShowFeedbackSimulator] = useState<VisitRequest | null>(null);
@@ -98,6 +203,16 @@ export function AdminPanel({
     scheduledDate: "entry.666260665",
     purpose: "entry.1129131450"
   });
+  
+  // Dynamic SMTP configuration
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("587");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPass, setSmtpPass] = useState("");
+  const [smtpFrom, setSmtpFrom] = useState("");
+  const [isSavingSmtp, setIsSavingSmtp] = useState(false);
+  const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+  const [smtpTestStatus, setSmtpTestStatus] = useState<{ success: boolean; message: string } | null>(null);
   
   const [isFetchingConfig, setIsFetchingConfig] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -393,6 +508,11 @@ export function AdminPanel({
           const data = await resp.json();
           if (data.googleFormsUrl) setGoogleFormsUrl(data.googleFormsUrl);
           if (data.mappings) setFieldMappings(data.mappings);
+          if (data.smtpHost) setSmtpHost(data.smtpHost);
+          if (data.smtpPort) setSmtpPort(data.smtpPort);
+          if (data.smtpUser) setSmtpUser(data.smtpUser);
+          if (data.smtpPass) setSmtpPass(data.smtpPass);
+          if (data.smtpFrom) setSmtpFrom(data.smtpFrom);
         }
       } catch (e) {
         console.error("Erro ao buscar configurações do servidor:", e);
@@ -440,6 +560,12 @@ export function AdminPanel({
 
     return matchesSearch && matchesStatus && matchesOrg && matchesDate;
   });
+
+  // Pagination computations
+  const totalPages = Math.ceil(filteredRequests.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentRequests = filteredRequests.slice(indexOfFirstItem, indexOfLastItem);
 
   // Approved visits that have passed their scheduled date (eligible for feedback emailing)
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -711,7 +837,7 @@ function updateVisitStatus(rowId, status, comments) {
             }`}
           >
             <User className="h-4 w-4" />
-            Planilha de Visitas
+            Análise SESMT &amp; Aprovação
           </button>
           <button
             onClick={() => setActiveAdminTab("feedbacks")}
@@ -745,6 +871,30 @@ function updateVisitStatus(rowId, status, comments) {
           >
             <CodeXml className="h-4 w-4" />
             Apps Script &amp; Gmail
+          </button>
+
+          <button
+            onClick={() => setActiveAdminTab("gate_validator")}
+            className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all ${
+              activeAdminTab === "gate_validator"
+                ? "bg-[#003366] border-[#003366] text-white shadow-xs"
+                : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <QrCode className="h-4 w-4 text-orange-500" />
+            Validador Portaria (QR Code)
+          </button>
+
+          <button
+            onClick={() => setActiveAdminTab("dispatched_emails")}
+            className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all ${
+              activeAdminTab === "dispatched_emails"
+                ? "bg-[#003366] border-[#003366] text-white shadow-xs"
+                : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Mail className="h-4 w-4 text-[#F58220]" />
+            E-mails Enviados (Crachás)
           </button>
 
           <button
@@ -963,7 +1113,7 @@ function updateVisitStatus(rowId, status, comments) {
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />
                 <h4 className="font-display font-semibold text-sm text-slate-100">
-                  Planilha de Visitas – Banco de Dados Principal
+                  Análise SESMT &amp; Aprovação – Banco de Dados Principal
                 </h4>
               </div>
               <span className="text-[10px] font-mono text-[#cceeff] shrink-0">Status: Sincronizado</span>
@@ -974,137 +1124,224 @@ function updateVisitStatus(rowId, status, comments) {
                 <p>Nenhuma solicitação encontrada para os filtros aplicados.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                      <th className="p-3.5 font-mono">ID</th>
-                      <th className="p-3.5">Visitante / Organização</th>
-                      <th className="p-3.5">Fins &amp; Participantes</th>
-                      <th className="p-3.5">Data Visita</th>
-                      <th className="p-3.5 text-center">Segurança (EPI)</th>
-                      <th className="p-3.5 text-center">Roteiro Inteligente (IA)</th>
-                      <th className="p-3.5">Status</th>
-                      <th className="p-3.5 text-right">Controles SESMT</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-150 text-slate-750">
-                    {filteredRequests.map((req) => (
-                      <tr 
-                        key={req.id} 
-                        onClick={() => setSelectedRequest(req)}
-                        className={`hover:bg-slate-50/70 transition-colors cursor-pointer ${
-                          selectedRequest?.id === req.id ? "bg-slate-100/60 font-semibold" : ""
-                        }`}
-                      >
-                        <td className="p-3.5 font-mono text-orange-600 font-bold whitespace-nowrap">
-                          {req.id}
-                        </td>
-                        <td className="p-3.5">
-                          <div className="text-[13px] font-extrabold text-slate-800">{req.fullName}</div>
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">{req.cpf} • {req.organization}</div>
-                        </td>
-                        <td className="p-3.5 max-w-xs">
-                          <p className="truncate text-slate-600" title={req.purpose}>{req.purpose}</p>
-                          <div className="text-[10px] text-slate-400 font-bold mt-1">Visitantes: {req.visitorCount} pax</div>
-                        </td>
-                        <td className="p-3.5 font-mono text-slate-700 whitespace-nowrap">
-                          {req.scheduledDate.split("-").reverse().join("/")}
-                        </td>
-                        <td className="p-3.5 text-center whitespace-nowrap">
-                          {req.securityCleared ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-                              <CheckCircle className="h-3 w-3" />
-                              CONCEDIDO
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-red-600 font-bold bg-red-50 border border-red-200 px-2.5 py-0.5 rounded-full">
-                              <ShieldAlert className="h-3 w-3 animate-pulse" />
-                              RESTRITO
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3.5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          {req.aiSuggestions ? (
-                            <span 
-                              className="inline-flex items-center gap-1 text-[10px] text-[#003366] font-bold bg-orange-50 border border-orange-200 px-2.5 py-1 rounded-md"
-                              title="Clique em 'Ver Detalhes' para examinar o roteiro elaborado"
-                            >
-                              <Sparkles className="h-30 w-3 text-orange-500 fill-orange-500/20" />
-                              Elaborado
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => triggerManualAI(req)}
-                              disabled={isGeneratingAI !== null}
-                              className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-[#003366] text-[10px] font-bold rounded flex items-center gap-1 transition-all"
-                            >
-                              {isGeneratingAI === req.id ? (
-                                <div className="w-2.5 h-2.5 border border-slate-200 border-t-[#003366] rounded-full animate-spin" />
-                              ) : (
-                                <Sparkles className="h-3 w-3 text-slate-400" />
-                              )}
-                              Gerar IA
-                            </button>
-                          )}
-                        </td>
-                        <td className="p-3.5">
-                          {req.status === VisitStatus.PENDING && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-amber-50 text-amber-700 px-2.5 py-0.5 rounded border border-amber-200">
-                              PENDENTE
-                            </span>
-                          )}
-                          {req.status === VisitStatus.APPROVED && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded border border-emerald-200">
-                              APROVADA
-                            </span>
-                          )}
-                          {req.status === VisitStatus.REJECTED && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-red-50 text-red-700 px-2.5 py-0.5 rounded border border-red-200">
-                              REJEITADA
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-1.5">
-                            {req.status !== VisitStatus.APPROVED && (
-                              <button
-                                onClick={() => handleActionClick(req, VisitStatus.APPROVED)}
-                                title="Aprovar e enviar e-mail"
-                                className="p-1.5 bg-emerald-50 border border-emerald-150 text-emerald-600 hover:bg-emerald-500 hover:text-white rounded transition-all cursor-pointer"
-                              >
-                                <CheckCircle className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-
-                            {req.status !== VisitStatus.REJECTED && (
-                              <button
-                                onClick={() => handleActionClick(req, VisitStatus.REJECTED)}
-                                title="Recusar agendamento"
-                                className="p-1.5 bg-red-50 border border-red-150 text-red-600 hover:bg-red-500 hover:text-white rounded transition-all cursor-pointer"
-                              >
-                                <XCircle className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-
-                            <button
-                              onClick={() => {
-                                if (confirm("Deseja apagar essa linha definitivamente? (Simulação de deleção no Sheets)")) {
-                                  onDeleteRequest(req.id);
-                                }
-                              }}
-                              title="Deletar linha"
-                              className="p-1.5 bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-605 border border-slate-200 rounded transition-all cursor-pointer"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                        <th className="p-3.5 font-mono">ID</th>
+                        <th className="p-3.5">Visitante / Organização</th>
+                        <th className="p-3.5">Fins &amp; Participantes</th>
+                        <th className="p-3.5">Data Visita</th>
+                        <th className="p-3.5 text-center">Segurança (EPI)</th>
+                        <th className="p-3.5 text-center">Roteiro Inteligente (IA)</th>
+                        <th className="p-3.5">Status</th>
+                        <th className="p-3.5 text-right">Controles SESMT</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-150 text-slate-750">
+                      {currentRequests.map((req) => (
+                        <tr 
+                          key={req.id} 
+                          onClick={() => setSelectedRequest(req)}
+                          className={`hover:bg-slate-50/70 transition-colors cursor-pointer ${
+                            selectedRequest?.id === req.id ? "bg-slate-100/60 font-semibold" : ""
+                          }`}
+                        >
+                          <td className="p-3.5 font-mono text-orange-600 font-bold whitespace-nowrap">
+                            {req.id}
+                          </td>
+                          <td className="p-3.5">
+                            <div className="text-[13px] font-extrabold text-slate-800">{req.fullName}</div>
+                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">{req.cpf} • {req.organization}</div>
+                          </td>
+                          <td className="p-3.5 max-w-xs">
+                            <p className="truncate text-slate-600" title={req.purpose}>{req.purpose}</p>
+                            <div className="text-[10px] text-slate-400 font-bold mt-1">Visitantes: {req.visitorCount} pax</div>
+                          </td>
+                          <td className="p-3.5 font-mono text-slate-700 whitespace-nowrap">
+                            {req.scheduledDate.split("-").reverse().join("/")}
+                          </td>
+                          <td className="p-3.5 text-center whitespace-nowrap">
+                            {req.securityCleared ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                                <CheckCircle className="h-3 w-3" />
+                                CONCEDIDO
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-red-600 font-bold bg-red-50 border border-red-200 px-2.5 py-0.5 rounded-full">
+                                <ShieldAlert className="h-3 w-3 animate-pulse" />
+                                RESTRITO
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3.5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            {req.aiSuggestions ? (
+                              <span 
+                                className="inline-flex items-center gap-1 text-[10px] text-[#003366] font-bold bg-orange-50 border border-orange-200 px-2.5 py-1 rounded-md"
+                                title="Clique em 'Ver Detalhes' para examinar o roteiro elaborado"
+                              >
+                                <Sparkles className="h-30 w-3 text-orange-500 fill-orange-500/20" />
+                                Elaborado
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => triggerManualAI(req)}
+                                disabled={isGeneratingAI !== null}
+                                className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-[#003366] text-[10px] font-bold rounded flex items-center gap-1 transition-all"
+                              >
+                                {isGeneratingAI === req.id ? (
+                                  <div className="w-2.5 h-2.5 border border-slate-200 border-t-[#003366] rounded-full animate-spin" />
+                                ) : (
+                                  <Sparkles className="h-3 w-3 text-slate-400" />
+                                )}
+                                Gerar IA
+                              </button>
+                            )}
+                          </td>
+                          <td className="p-3.5">
+                            {req.status === VisitStatus.PENDING && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-amber-50 text-amber-700 px-2.5 py-0.5 rounded border border-amber-200">
+                                PENDENTE
+                              </span>
+                            )}
+                            {req.status === VisitStatus.APPROVED && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded border border-emerald-200">
+                                APROVADA
+                              </span>
+                            )}
+                            {req.status === VisitStatus.REJECTED && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-red-50 text-red-700 px-2.5 py-0.5 rounded border border-red-200">
+                                REJEITADA
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-1.5">
+                              {req.status !== VisitStatus.APPROVED && (
+                                <button
+                                  onClick={() => handleActionClick(req, VisitStatus.APPROVED)}
+                                  title="Aprovar e enviar e-mail"
+                                  className="p-1.5 bg-[#e6fffa] border border-[#b2f5ea] text-emerald-600 hover:bg-emerald-500 hover:text-white rounded transition-all cursor-pointer"
+                                >
+                                  <CheckCircle className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+
+                              {req.status !== VisitStatus.REJECTED && (
+                                <button
+                                  onClick={() => handleActionClick(req, VisitStatus.REJECTED)}
+                                  title="Recusar agendamento"
+                                  className="p-1.5 bg-red-50 border border-red-150 text-red-600 hover:bg-red-500 hover:text-white rounded transition-all cursor-pointer"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => {
+                                  if (confirm("Deseja apagar essa linha definitivamente? (Simulação de deleção no Sheets)")) {
+                                    onDeleteRequest(req.id);
+                                  }
+                                }}
+                                title="Deletar linha"
+                                className="p-1.5 bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-605 border border-slate-200 rounded transition-all cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Painel de Paginação de Alta Fidelidade */}
+                <div className="bg-slate-50 px-5 py-4 border-t border-slate-250 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs select-none">
+                  <div className="flex items-center gap-3 text-slate-600">
+                    <span>
+                      Exibindo <strong>{Math.min(indexOfFirstItem + 1, filteredRequests.length)}</strong> a{" "}
+                      <strong>{Math.min(indexOfLastItem, filteredRequests.length)}</strong> de{" "}
+                      <strong>{filteredRequests.length}</strong> solicitações
+                    </span>
+                    <span className="hidden sm:inline text-slate-300">|</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500">Linhas por página:</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => {
+                          setItemsPerPage(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="bg-white border border-slate-200 rounded px-2 py-1 text-[#003366] font-bold focus:outline-hidden font-sans cursor-pointer focus:ring-1 focus:ring-[#003366]"
+                      >
+                        <option value={5}>5 por página</option>
+                        <option value={10}>10 por página</option>
+                        <option value={20}>20 por página</option>
+                        <option value={50}>50 por página</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {totalPages >= 1 && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="p-1 px-2 rounded border border-slate-200 bg-white text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-all cursor-pointer flex items-center justify-center gap-1 font-medium"
+                        title="Página Anterior"
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                        Anterior
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: totalPages || 1 }, (_, i) => i + 1).map((pg) => {
+                          if (
+                            totalPages > 5 &&
+                            pg !== 1 &&
+                            pg !== totalPages &&
+                            Math.abs(pg - currentPage) > 1
+                          ) {
+                            if (pg === 2 && currentPage > 3) {
+                              return <span key="ellipsis-1" className="px-1 text-slate-400 font-mono">...</span>;
+                            }
+                            if (pg === totalPages - 1 && currentPage < totalPages - 2) {
+                              return <span key="ellipsis-2" className="px-1 text-slate-400 font-mono">...</span>;
+                            }
+                            return null;
+                          }
+
+                          return (
+                            <button
+                              key={pg}
+                              onClick={() => setCurrentPage(pg)}
+                              className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer ${
+                                currentPage === pg
+                                  ? "bg-[#003366] text-white"
+                                  : "bg-white border border-slate-200 text-slate-650 hover:bg-slate-100"
+                              }`}
+                            >
+                              {pg}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages || 1, p + 1))}
+                        disabled={currentPage === (totalPages || 1)}
+                        className="p-1 px-2 rounded border border-slate-200 bg-white text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-all cursor-pointer flex items-center justify-center gap-1 font-medium"
+                        title="Próxima Página"
+                      >
+                        Próxima
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </section>
 
@@ -1233,6 +1470,15 @@ function updateVisitStatus(rowId, status, comments) {
                     className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 transition-colors cursor-pointer"
                   >
                     Marcar como Pendente
+                  </button>
+                )}
+                {selectedRequest.status === VisitStatus.APPROVED && (
+                  <button
+                    onClick={() => setViewingBadge(selectedRequest)}
+                    className="px-4 py-2.5 bg-[#003366] hover:bg-[#002244] text-white rounded-lg flex items-center gap-1.5 shadow-3xs transition-colors cursor-pointer"
+                  >
+                    <Eye className="h-4 w-4" />
+                    Visualizar Crachá de Acesso
                   </button>
                 )}
               </div>
@@ -1801,10 +2047,192 @@ function updateVisitStatus(rowId, status, comments) {
             {/* Test Simulation Panel */}
             <div className="lg:col-span-5 space-y-6">
               
+              {/* Card - Real Email SMTP Server Settings (Dynamic configurations input) */}
+              <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs space-y-4 text-xs">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                  <Mail className="h-4.5 w-4.5 text-[#003366]" />
+                  <h4 className="font-display font-bold text-[#003366] text-[13px] uppercase">
+                    2. Configuração do Servidor SMTP de E-mail
+                  </h4>
+                </div>
+                <p className="text-slate-500 text-[11px] leading-relaxed">
+                  Para que os e-mails com as credenciais cheguem de verdade aos visitantes, preencha os dados do seu provedor de e-mail (Gmail, Outlook, Hostgator, Locaweb, etc.):
+                </p>
+
+                {/* Helper box for common SMTP errors like Gmail BadCredentials */}
+                <div className="bg-amber-50/90 border border-amber-200 rounded-lg p-3 space-y-1.5 text-[11px] leading-normal text-amber-900">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                    <span className="text-xs">🔑</span> <strong>Atenção para usuários Gmail / Google Workspace:</strong>
+                  </div>
+                  <p className="text-amber-850">
+                    O Google bloqueia logins SMTP com a sua senha comum. Para usar o Gmail (<code className="bg-amber-100 font-mono px-1 rounded text-amber-950">smtp.gmail.com</code> porta <code className="bg-amber-100 font-mono px-1 rounded text-amber-950">587</code>), siga estes passos:
+                  </p>
+                  <ol className="list-decimal pl-4.5 space-y-1 text-amber-850">
+                    <li>Acesse as configurações da sua <strong>Conta Google</strong> (<a href="https://myaccount.google.com" target="_blank" rel="noreferrer" className="underline font-bold text-amber-900 hover:text-amber-950">myaccount.google.com</a>).</li>
+                    <li>Certifique-se de que a <strong>Verificação em Duas Etapas</strong> está ATIVADA.</li>
+                    <li>Pesquise por <strong>"Senhas de app"</strong> na caixa de pesquisa da sua conta.</li>
+                    <li>Insira um nome explicativo (ex: <i>Portaria Wilson Sons</i>) e clique em <b>Criar</b>.</li>
+                    <li>Copie o código gerado de <strong>16 letras</strong> (ex: <code className="bg-amber-200/70 font-mono font-bold px-1 rounded text-amber-950">abcd efgh ijkl mnop</code>) e cole-o completo (sem espaços) no campo de senha abaixo!</li>
+                  </ol>
+                </div>
+
+                <div className="space-y-3.5">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono font-bold text-slate-500 block uppercase">SMTP Host / Servidor</label>
+                    <input
+                      type="text"
+                      value={smtpHost}
+                      onChange={(e) => setSmtpHost(e.target.value)}
+                      placeholder="smtp.gmail.com"
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-hidden focus:border-orange-500 font-mono text-slate-800"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-1 space-y-1">
+                      <label className="text-[10px] font-mono font-bold text-slate-500 block uppercase">Porta</label>
+                      <input
+                        type="text"
+                        value={smtpPort}
+                        onChange={(e) => setSmtpPort(e.target.value)}
+                        placeholder="587"
+                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-hidden focus:border-orange-500 font-mono text-slate-800"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <label className="text-[10px] font-mono font-bold text-slate-500 block uppercase">Novo Remetente (FROM)</label>
+                      <input
+                        type="text"
+                        value={smtpFrom}
+                        onChange={(e) => setSmtpFrom(e.target.value)}
+                        placeholder="sesmt@wilsonsons.com.br"
+                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-hidden focus:border-orange-500 font-mono text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono font-bold text-slate-500 block uppercase">Usuário / Conta de E-mail</label>
+                    <input
+                      type="text"
+                      value={smtpUser}
+                      onChange={(e) => setSmtpUser(e.target.value)}
+                      placeholder="portaria-sesmt@suaempresa.com"
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-hidden focus:border-orange-500 font-mono text-slate-800"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-mono font-bold text-slate-500 block uppercase">Senha / Password de App</label>
+                      <span className="text-[8.5px] text-orange-600 font-bold">Use senha de aplicativo</span>
+                    </div>
+                    <input
+                      type="password"
+                      value={smtpPass}
+                      onChange={(e) => setSmtpPass(e.target.value)}
+                      placeholder="••••••••••••••••••••"
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-hidden focus:border-orange-500 font-mono text-slate-800"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isSavingSmtp}
+                    onClick={async () => {
+                      if (!smtpHost || !smtpPort || !smtpUser || !smtpPass) {
+                        alert("Por favor, preencha todos os campos SMTP obrigatórios (Host, Porta, Usuário, Senha).");
+                        return;
+                      }
+                      setIsSavingSmtp(true);
+                      try {
+                        const res = await fetch("/api/config", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            smtpHost,
+                            smtpPort,
+                            smtpUser,
+                            smtpPass,
+                            smtpFrom
+                          })
+                        });
+                        if (res.ok) {
+                          alert("✅ Servidor SMTP corporativo configurado e salvo com sucesso!");
+                        } else {
+                          alert("❌ Erro ao gravar as chaves SMTP.");
+                        }
+                      } catch (err: any) {
+                        alert("Erro ao salvar SMTP: " + err.message);
+                      } finally {
+                        setIsSavingSmtp(false);
+                      }
+                    }}
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-lg transition-colors text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+                  >
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    {isSavingSmtp ? "Salvando SMTP..." : "Salvar Configurações SMTP"}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isTestingSmtp || isSavingSmtp}
+                    onClick={async () => {
+                      if (!smtpHost || !smtpPort || !smtpUser || !smtpPass) {
+                        alert("Por favor, preencha todos os campos SMTP obrigatórios (Host, Porta, Usuário, Senha) antes de testar.");
+                        return;
+                      }
+                      setIsTestingSmtp(true);
+                      setSmtpTestStatus(null);
+                      try {
+                        const res = await fetch("/api/test-smtp", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            smtpHost,
+                            smtpPort,
+                            smtpUser,
+                            smtpPass
+                          })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                          setSmtpTestStatus({ success: true, message: data.message });
+                        } else {
+                          setSmtpTestStatus({ success: false, message: data.error });
+                        }
+                      } catch (err: any) {
+                        setSmtpTestStatus({ success: false, message: "Erro na requisição: " + err.message });
+                      } finally {
+                        setIsTestingSmtp(false);
+                      }
+                    }}
+                    className="w-full py-2 bg-slate-700 hover:bg-slate-800 text-white font-extrabold rounded-lg transition-colors text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+                  >
+                    <span>⚡</span>
+                    {isTestingSmtp ? "Testando Conexão..." : "Testar Conexão SMTP em Tempo Real"}
+                  </button>
+
+                  {smtpTestStatus && (
+                    <div className={`p-3 rounded-lg text-xs leading-relaxed ${
+                      smtpTestStatus.success 
+                        ? "bg-emerald-50 border border-emerald-250 text-emerald-900"
+                        : "bg-rose-50 border border-rose-250 text-rose-900"
+                    }`}>
+                      <div className="font-bold flex items-center gap-1.5 mb-1 text-[11px]">
+                        <span>{smtpTestStatus.success ? "✅" : "⚠️"}</span>
+                        <span>{smtpTestStatus.success ? "Conexão Estabelecida com Sucesso" : "Falha na Conexão SMTP"}</span>
+                      </div>
+                      <p className="text-[10px] whitespace-pre-wrap">{smtpTestStatus.message}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Live Webhook Test Panel */}
               <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl shadow-xs space-y-4">
-                <h4 className="font-display font-bold text-[#003366] text-[13px] border-b border-slate-200 pb-2">
-                  2. Simulador de Disparo em Tempo Real (Google Forms)
+                <h4 className="font-display font-bold text-[#003366] text-[13px] border-b border-slate-200 pb-2 uppercase">
+                  3. Simulador de Disparo em Tempo Real (Google Forms)
                 </h4>
                 <p className="text-slate-500 text-[11px] leading-relaxed">
                   Para atestar a validade de sua conexão sem precisar simular no pátio físico, preencha as credenciais padrão de testes corporativos abaixo e solicite um envio forçado diretamente para a Planilha do Google Forms!
@@ -1962,6 +2390,382 @@ function updateVisitStatus(rowId, status, comments) {
         </section>
       )}
 
+      {activeAdminTab === "gate_validator" && (
+        <section className="space-y-6 animate-fade-in text-slate-800">
+          <div className="bg-white border border-slate-200 p-6 sm:p-8 rounded-2xl shadow-sm space-y-4">
+            <h3 className="font-display font-bold text-lg text-[#003366] flex items-center gap-2">
+              <QrCode className="h-5.5 w-5.5 text-orange-500" />
+              Simulador de Validação de Crachá por QR Code (Controle de Portaria Wilson Sons)
+            </h3>
+            <p className="text-sm text-slate-600 max-w-2xl">
+              Neste terminal, a Portaria ou Guarita do Porto pode escanear o QR Code impresso no crachá do visitante (celular ou papel) para validar seu acesso e registrar a entrada em tempo real.
+            </p>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-4">
+              
+              {/* Simulator Controls & Video Feed Simulation */}
+              <div className="lg:col-span-5 space-y-4">
+                <div className="bg-slate-900 rounded-2xl border border-slate-800 p-4 shadow-md flex flex-col justify-between text-center min-h-[300px] text-white relative overflow-hidden">
+                  
+                  {/* Subtle red scan line animation */}
+                  <div className="absolute inset-x-0 top-1/2 h-0.5 bg-red-500 shadow-lg shadow-red-500/50 animate-[bounce_3s_infinite] pointer-events-none" />
+                  
+                  <span className="text-[9px] font-mono font-bold text-slate-450 uppercase tracking-widest block mb-2">
+                    WEBCAM PORTAL DE LEITURA SESMT ACTIVO
+                  </span>
+
+                  <div className="my-auto space-y-4 max-w-[240px] mx-auto z-10">
+                    <QrCode className="h-16 w-16 mx-auto text-orange-400 animate-pulse" />
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Selecione um visitante aprovado no painel ao lado para simular o escaneamento na câmera física do porto.
+                    </p>
+                  </div>
+
+                  {/* Manual ID Input fallback */}
+                  <div className="space-y-2 mt-4 pt-4 border-t border-slate-800 z-10 text-left">
+                    <label className="text-[10px] font-mono uppercase text-slate-450 block font-bold">DIGITAR ID DO CRACHÁ (WS-REQ-XXX)</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text"
+                        placeholder="Ex: WS-REQ-001"
+                        id="manualQrInput"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            //@ts-ignore
+                            handleScanValidation((e.target as HTMLInputElement).value);
+                          }
+                        }}
+                        className="bg-slate-850 border border-slate-700 text-white font-mono text-xs uppercase px-3 py-1.5 rounded-lg flex-1 focus:outline-hidden focus:border-orange-500"
+                      />
+                      <button 
+                        onClick={() => {
+                          const input = document.getElementById("manualQrInput") as HTMLInputElement;
+                          if (input) handleScanValidation(input.value);
+                        }}
+                        className="px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 border border-orange-550 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                      >
+                        Validar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Simulated Trigger Select Dropdown */}
+                <div className="p-4 bg-orange-50/70 border border-orange-200 rounded-xl space-y-2">
+                  <span className="text-[10px] font-mono font-bold uppercase text-orange-600 block">SIMULADOR DE LEITURA PORTÁTIL</span>
+                  <label className="text-xs font-semibold text-slate-700 block mt-1">Escolha uma solicitação de visita para simular leitura de QR Code:</label>
+                  <select 
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleScanValidation(e.target.value);
+                      }
+                    }}
+                    defaultValue=""
+                    className="w-full text-xs p-2 bg-white border border-slate-250 rounded-lg text-slate-850 font-medium cursor-pointer focus:outline-hidden"
+                  >
+                    <option value="" disabled>-- Selecione um Visitante --</option>
+                    {requests.map(r => (
+                      <option key={r.id} value={r.id}>
+                        [{r.status.toUpperCase()}] {r.fullName} ({r.id})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Scan result display panel */}
+              <div className="lg:col-span-7 bg-slate-50 border border-slate-200 rounded-2xl p-6 min-h-[300px] flex flex-col justify-between">
+                {scanResult ? (
+                  <div className="space-y-6 animate-fade-in">
+                    
+                    {/* Status Badge */}
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                      <div>
+                        <span className="text-[10px] text-slate-455 font-mono font-bold uppercase block">RESULTADO DA VERIFICAÇÃO</span>
+                        <div className="flex items-center gap-2 mt-1">
+                          {scanResult.status === "allow" && (
+                            <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-300 text-emerald-700 rounded-full font-bold text-xs uppercase font-mono shadow-3xs">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              Acesso Liberado • Entrada Livre
+                            </span>
+                          )}
+                          {scanResult.status === "pending" && (
+                            <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-300 text-amber-700 rounded-full font-bold text-xs uppercase font-mono shadow-3xs">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                              Acesso Retindo • Pendente SESMT
+                            </span>
+                          )}
+                          {scanResult.status === "deny" && (
+                            <span className="flex items-center gap-1.5 px-3 py-1 bg-red-50 border border-red-300 text-red-700 rounded-full font-bold text-xs uppercase font-mono shadow-3xs">
+                              Acesso Bloqueado • Recusado
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Audio simulation notice */}
+                      <span className="text-[9px] font-mono text-slate-400 italic bg-white border border-slate-150 px-2.5 py-1 rounded">
+                        Beep auditivo simulado 🔊
+                      </span>
+                    </div>
+
+                    {/* Visitor Card */}
+                    <div className="flex flex-col sm:flex-row gap-5 items-start">
+                      
+                      {/* Photo preview in validation */}
+                      <div className="relative w-28 h-32 bg-slate-100 rounded-lg overflow-hidden border-2 border-slate-200 shrink-0 flex items-center justify-center">
+                        {scanResult.request.visitorPhoto ? (
+                          <img 
+                            src={scanResult.request.visitorPhoto} 
+                            alt={scanResult.request.fullName}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="p-3 text-slate-400 text-center space-y-1">
+                            <User className="h-8 w-8 mx-auto text-slate-350" />
+                            <p className="text-[10px] font-mono font-bold leading-none">Sem Foto</p>
+                          </div>
+                        )}
+                        <span className={`absolute bottom-0 inset-x-0 text-center text-white font-mono text-[8.5px] font-bold py-0.5 uppercase ${
+                          scanResult.status === "allow" ? "bg-emerald-600" : "bg-red-650"
+                        }`}>
+                          {scanResult.request.id}
+                        </span>
+                      </div>
+
+                      {/* Info details */}
+                      <div className="space-y-3 font-sans text-xs flex-1">
+                        <div>
+                          <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">NOME DO VISITANTE</span>
+                          <strong className="text-[#003366] text-sm uppercase font-display font-extrabold">{scanResult.request.fullName}</strong>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3.5 pt-1.5 border-t border-slate-150">
+                          <div>
+                            <span className="text-[10px] font-mono text-slate-400 block uppercase">EMPRESA / INSTITUIÇÃO</span>
+                            <span className="font-semibold text-slate-700 uppercase">{scanResult.request.organization}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-mono text-slate-400 block uppercase">DOCUMENTO (CPF)</span>
+                            <span className="font-mono text-slate-700">{scanResult.request.cpf}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-mono text-slate-400 block uppercase">DATA AUTORIZADA</span>
+                            <span className="font-mono font-bold text-[#003366]">{scanResult.request.scheduledDate.split("-").reverse().join("/")}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-mono text-[#003360] block uppercase">VISITANTES</span>
+                            <span className="font-mono text-slate-700">{scanResult.request.visitorCount} pessoa(s)</span>
+                          </div>
+                        </div>
+
+                        {scanResult.request.rejectionReason && scanResult.status === "deny" && (
+                          <div className="bg-red-50 border border-red-150 p-2.5 rounded-lg text-red-850 text-[11px] font-medium leading-relaxed">
+                            <strong>Motivo do Bloqueio:</strong> "{scanResult.request.rejectionReason}"
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Safety compliance checks */}
+                    <div className="bg-white border border-slate-205 p-3.5 rounded-xl text-slate-650 text-[11px] leading-relaxed">
+                      <p className="font-bold text-[#003366] uppercase text-[9.5px] font-mono mb-1.5">CONFORMIDADE DE SEGURANÇA E EPIS OBRIGATÓRIOS SEGUNDO SESMT:</p>
+                      <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 pl-4 list-disc text-slate-500 font-medium">
+                        <li>Termo de Responsabilidade Assinado: <span className="text-emerald-600 font-bold font-mono">OK</span></li>
+                        <li>Tutorial de Riscos de Pátio: <span className="text-emerald-600 font-bold font-mono">OK</span></li>
+                        <li>Capacete Portuário: <span className="text-orange-600 font-bold font-mono">REQUERIDO</span></li>
+                        <li>Bota de Aço de Segurança: <span className="text-orange-600 font-bold font-mono">REQUERIDO</span></li>
+                      </ul>
+                    </div>
+
+                  </div>
+                ) : (
+                  <div className="my-auto text-center p-8 space-y-4 max-w-sm mx-auto">
+                    <QrCode className="h-10 w-10 text-slate-350 mx-auto" />
+                    <h4 className="font-display font-extrabold text-slate-700 text-sm">Nenhum QR Code Escaneado</h4>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Selecione um agendamento na lista suspensa móvel ou digite o ID para demonstrar como o validador do porto reage auditiva e visualmente!
+                    </p>
+                  </div>
+                )}
+
+                {/* Scan log tracker */}
+                <div className="border-t border-slate-200 mt-6 pt-4 text-left text-[10px] text-slate-400 font-mono tracking-tight flex items-center justify-between">
+                  <span>TERMINAL ID: WS-GATE-01 (DOCK CENTRAL)</span>
+                  <span>IP REDE: 10.12.92.51 (INTERNO)</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeAdminTab === "dispatched_emails" && (
+        <section className="space-y-6 animate-fade-in text-slate-800">
+          <div className="bg-white border border-slate-200 p-6 sm:p-8 rounded-2xl shadow-sm space-y-4">
+            <div className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-[#F58220]" />
+              <div>
+                <h3 className="font-display font-bold text-lg text-[#003366]">
+                  Histórico de E-mails Enviados Automaticamente (SMTP Logs)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Os crachás virtuais de acesso são liberados e encaminhados de forma 100% automatizada assim que o status da visita é aprovado pelo SESMT.
+                </p>
+              </div>
+            </div>
+
+            {mailLogs.length === 0 ? (
+              <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center text-slate-400 space-y-2">
+                <Mail className="h-10 w-10 mx-auto text-slate-350 animate-pulse" />
+                <h4 className="font-bold text-slate-700">Nenhum Email Disparado</h4>
+                <p className="text-xs max-w-sm mx-auto text-slate-500">
+                  Aprove solicitações de visita para simular o recebimento automático de e-mails contendo a credencial oficial para impressão.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
+                {/* Email Sidebar List */}
+                <div className="lg:col-span-4 border border-slate-200 rounded-xl overflow-hidden bg-slate-50 max-h-[500px] overflow-y-auto divide-y divide-slate-150">
+                  <div className="bg-slate-100 p-3 text-xs font-bold text-[#003366] uppercase tracking-wider border-b border-slate-200">
+                    Mensagens Disparadas ({mailLogs.length})
+                  </div>
+                  <div className="divide-y divide-slate-150">
+                    {mailLogs.map((log) => {
+                      const isActive = (selectedMailId || mailLogs[0]?.id) === log.id;
+                      return (
+                        <button
+                          key={log.id}
+                          onClick={() => setSelectedMailId(log.id)}
+                          className={`w-full text-left p-3.5 text-xs transition-colors cursor-pointer block ${
+                            isActive 
+                              ? "bg-white border-l-4 border-orange-500 font-medium" 
+                              : "hover:bg-slate-100 bg-slate-50"
+                          }`}
+                        >
+                          <div className="flex justify-between items-center mb-1 text-slate-550 text-[10px] font-mono">
+                            <span className="font-bold uppercase tracking-wider text-orange-600">{log.type === "approval" ? "APROVAÇÃO ✓" : "RECUSA ❌"}</span>
+                            <span>{log.date}</span>
+                          </div>
+                          <div className="font-extrabold text-slate-800 truncate mb-0.5">{log.subject}</div>
+                          <div className="text-slate-550 truncate text-[11px]">Para: {log.to}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Email Content Detail Pane */}
+                <div className="lg:col-span-8 border border-slate-200 rounded-xl bg-white p-5 flex flex-col justify-between min-h-[450px]">
+                  {(() => {
+                    const activeMailId = selectedMailId || mailLogs[0]?.id;
+                    const log = mailLogs.find(m => m.id === activeMailId) || mailLogs[0];
+                    if (!log) return null;
+
+                    return (
+                      <div className="space-y-5 h-full flex flex-col justify-between text-left">
+                        <div>
+                          {/* Standard Mail Fields (Headers) */}
+                          <div className="border border-slate-150 rounded-lg p-3 bg-slate-50 text-xs space-y-1 text-left font-sans">
+                            <div><strong className="text-slate-500 font-mono">REMETENTE:</strong> <span className="font-bold text-[#003366]">sesmt@wilsonsons.com.br</span> (SMTP Seguro Wilson Sons)</div>
+                            <div><strong className="text-slate-550 font-mono">DESTINATÁRIO:</strong> <span className="font-semibold text-slate-800 underline">{log.to}</span></div>
+                            <div><strong className="text-slate-550 font-mono">ASSUNTO:</strong> <span className="font-extrabold text-slate-900">{log.subject}</span></div>
+                            <div><strong className="text-slate-550 font-mono">DATA DE DISPARO:</strong> <span className="font-mono text-slate-600">{log.date} (Automático)</span></div>
+                          </div>
+
+                          {/* Email Message Text Box */}
+                          <div className="flex justify-between items-center mt-4 mb-2">
+                            <span className="text-xs font-bold text-slate-500 uppercase font-mono tracking-wide">Exibição do Conteúdo</span>
+                            {log.htmlBody && (
+                              <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                                <button
+                                  type="button"
+                                  onClick={() => setViewMode("html")}
+                                  className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                    viewMode === "html" 
+                                      ? "bg-white text-[#003366] shadow-xs" 
+                                      : "text-slate-500 hover:text-slate-800"
+                                  }`}
+                                >
+                                  Mock de E-mail (HTML)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setViewMode("text")}
+                                  className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                    viewMode === "text" 
+                                      ? "bg-white text-[#003366] shadow-xs" 
+                                      : "text-slate-500 hover:text-slate-800"
+                                  }`}
+                                >
+                                  Texto Puro
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {viewMode === "html" && log.htmlBody ? (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto bg-slate-50 p-2">
+                              {/* Safely injected styled credentials preview inside iframe container style or div */}
+                              <div 
+                                className="scale-[0.85] origin-top transform my-2"
+                                dangerouslySetInnerHTML={{ __html: log.htmlBody }} 
+                              />
+                            </div>
+                          ) : (
+                            <div className="p-4 text-xs text-slate-700 bg-slate-50/50 border border-slate-100 rounded-xl text-left leading-relaxed whitespace-pre-wrap font-sans max-h-[200px] overflow-y-auto">
+                              {log.body}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Attached Physical Badge Preview Area */}
+                        {log.type === "approval" ? (
+                          <div className="border-t border-dashed border-slate-200 pt-4 mt-2">
+                            <div className="bg-[#003366]/5 border border-[#003366]/15 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                              <div className="flex items-center gap-3 text-left">
+                                <div className="p-2 bg-emerald-50 border border-emerald-250 text-emerald-600 rounded-lg shrink-0">
+                                  <QrCode className="h-5 w-5" />
+                                </div>
+                                <div>
+                                  <h4 className="font-display font-extrabold text-xs text-[#003366] uppercase">Anexo: Credencial Oficial com QR Code Gerada</h4>
+                                  <p className="text-[10px] text-slate-500 leading-tight block">
+                                    Esta credencial possui as dimensões físicas padronizadas (85mm x 135mm) para impressão e uso de correia.
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              {/* Open Badge inside the mailbox view directly */}
+                              <button
+                                onClick={() => {
+                                  // Resolve the full request with its high-quality profile photo from the main database list
+                                  const fullRequest = requests.find((r) => r.id === log.request?.id) || log.request;
+                                  setViewingBadge(fullRequest);
+                                }}
+                                className="px-4 py-2 bg-[#003366] hover:bg-[#002244] text-white text-xs font-bold rounded-lg transition-all shadow-3xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                <span>Visualizar Credencial Real</span>
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="border-t border-dashed border-slate-150 pt-4 text-center text-xs text-slate-400 italic">
+                            Esta notificação não acompanha credencial de liberação (solicitação recusada pelo SESMT).
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* Post-Visit Google Feedback Form Simulator Modal */}
       {showFeedbackSimulator && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in text-slate-800 shadow-2xl">
@@ -2098,6 +2902,18 @@ function updateVisitStatus(rowId, status, comments) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Pop-up Modal overlay for standard Virtual Badge visualizing across tabs */}
+      {viewingBadge && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-55 overflow-y-auto animate-fade-in print:p-0">
+          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+            <VirtualBadge 
+              request={viewingBadge} 
+              onClose={() => setViewingBadge(null)} 
+            />
           </div>
         </div>
       )}

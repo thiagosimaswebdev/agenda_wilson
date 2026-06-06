@@ -27,6 +27,7 @@ export interface VisitRequest {
   aiSuggestions?: string;   // New AI-generated recommendations and slot feedback
   feedbackSent?: boolean;    // Tracks if post-visit feedback email was triggered
   feedbackSentDate?: string; // Date feedback email was automatically sent
+  visitorPhoto?: string;     // Base64 encoded visitor photo or profile image url
 }
 
 export interface FeedbackResponse {
@@ -48,3 +49,15 @@ export interface DashboardStats {
   approved: number;
   rejected: number;
 }
+
+export interface MailLog {
+  id: string;
+  to: string;
+  subject: string;
+  date: string;
+  body: string;
+  htmlBody?: string;
+  request: VisitRequest;
+  type: "approval" | "feedback" | "rejection";
+}
+

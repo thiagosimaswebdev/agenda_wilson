@@ -24,12 +24,12 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
     <div className="space-y-12 py-8 max-w-5xl mx-auto animate-fade-in">
       {/* Title & Alert Header */}
       <div className="text-center space-y-4">
-        <div className="inline-flex items-center gap-2 bg-orange-50 border border-orange-200 px-4 py-2 rounded-full text-xs font-mono text-orange-600 font-bold uppercase tracking-wider shadow-xs">
-          <ShieldAlert className="h-4 w-4 text-orange-500 animate-bounce" />
+        <div className="inline-flex items-center gap-2 bg-sky-50 border border-sky-100 px-4 py-2 rounded-full text-xs font-mono text-[#003366] font-bold uppercase tracking-wider shadow-xs">
+          <ShieldAlert className="h-4 w-4 text-[#00AED6] animate-bounce" />
           MÓDULO DE CONSCIENTIZAÇÃO OBRIGATÓRIA
         </div>
         <h1 className="font-display text-3xl sm:text-4xl font-extrabold text-[#003366] tracking-tight">
-          Normas de Segurança de Operações e Uso de <span className="text-orange-500">EPIs</span>
+          Normas de Segurança de Operações e Uso de <span className="text-[#00AED6]">EPIs</span>
         </h1>
         <p className="text-slate-600 text-sm sm:text-base max-w-2xl mx-auto leading-relaxed">
           De acordo com as normas regulamentadoras nacionais (NR-29), o acesso de qualquer visitante a portos, estaleiros ou terminais Wilson Sons está estritamente condicionado ao conhecimento das regras de segurança operacional.
@@ -93,27 +93,27 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
       {/* General Orientations */}
       <section className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 space-y-4 shadow-sm">
         <h3 className="font-display font-bold text-xl text-[#003366] flex items-center gap-2">
-          <Info className="h-5 w-5 text-orange-500" />
+          <Info className="h-5 w-5 text-[#00AED6]" />
           Orientações Gerais de Segurança Física
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm text-slate-650 leading-relaxed">
           <div className="space-y-3">
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-205/60 text-slate-650">
-              <strong className="text-orange-600 block mb-1 font-bold">Caminhos demarcados:</strong>
+              <strong className="text-[#003366] block mb-1 font-bold">Caminhos demarcados:</strong>
               Mantenha-se rigorosamente dentro das faixas amarelas pintadas no solo (faixas de trânsito exclusivo de pedestre). Nunca invada as vias de empilhadeiras.
             </div>
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-205/60 text-slate-650">
-              <strong className="text-orange-600 block mb-1 font-bold">Carga Suspensa:</strong>
+              <strong className="text-[#003366] block mb-1 font-bold">Carga Suspensa:</strong>
               Preste atenção aos alarmes sonoros e giroflex dos guindastes STS. Nunca caminhe embaixo de containers ou de braços hidráulicos de carga.
             </div>
           </div>
           <div className="space-y-3">
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-205/60 text-slate-650">
-              <strong className="text-orange-600 block mb-1 font-bold">Uso de Crachá:</strong>
+              <strong className="text-[#003366] block mb-1 font-bold">Uso de Crachá:</strong>
               O crachá fornecido na portaria deve ser mantido sempre no peito, em local visível, e deve ser devolvido na portaria ao final da visitação.
             </div>
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-205/60 text-slate-650">
-              <strong className="text-orange-600 block mb-1 font-bold">Uso de Celular:</strong>
+              <strong className="text-[#003366] block mb-1 font-bold">Uso de Celular:</strong>
               É terminantemente proibido registrar fotos ou vídeos de áreas operacionais restringidas sem a permissão explícita de seu anfitrião Wilson Sons.
             </div>
           </div>
@@ -124,7 +124,7 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
       <section className="space-y-4">
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden p-4 sm:p-6 shadow-sm">
           <h4 className="font-display font-bold text-lg text-[#003366] mb-4 text-center sm:text-left flex items-center justify-center sm:justify-start gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 animate-ping" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#00AED6] animate-ping" />
             Vídeo de Integração OBRIGATÓRIO (EPIs &amp; Segurança)
           </h4>
           <div className="relative rounded-xl overflow-hidden aspect-video shadow-lg bg-black">
@@ -138,7 +138,7 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
             />
           </div>
           <div className="mt-3 flex items-center gap-2 text-slate-500 text-xs justify-center sm:justify-start font-mono">
-            <AlertCircle className="h-4 w-4 text-orange-500" />
+            <AlertCircle className="h-4 w-4 text-[#00AED6]" />
             <span>Assista ao vídeo explicativo acima por completo para liberar o formulário.</span>
           </div>
         </div>
@@ -158,7 +158,7 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
               type="checkbox"
               checked={checkedWatch}
               onChange={(e) => setCheckedWatch(e.target.checked)}
-              className="mt-1 h-4 w-4 text-orange-500 focus:ring-orange-500 focus:ring-offset-0 rounded border-slate-350 cursor-pointer accent-orange-500"
+              className="mt-1 h-4 w-4 text-[#00AED6] focus:ring-[#00AED6] focus:ring-offset-0 rounded border-slate-350 cursor-pointer accent-[#00AED6]"
             />
             <div className="text-xs sm:text-sm">
               <span className="font-bold text-slate-800 block">Assisti ao vídeo completo</span>
@@ -172,7 +172,7 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
               type="checkbox"
               checked={checkedUnderstand}
               onChange={(e) => setCheckedUnderstand(e.target.checked)}
-              className="mt-1 h-4 w-4 text-orange-500 focus:ring-orange-500 focus:ring-offset-0 rounded border-slate-350 cursor-pointer accent-orange-500"
+              className="mt-1 h-4 w-4 text-[#00AED6] focus:ring-[#00AED6] focus:ring-offset-0 rounded border-slate-350 cursor-pointer accent-[#00AED6]"
             />
             <div className="text-xs sm:text-sm">
               <span className="font-bold text-slate-800 block">Compreendi as orientações de segurança</span>
@@ -186,7 +186,7 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
               type="checkbox"
               checked={checkedEpiAware}
               onChange={(e) => setCheckedEpiAware(e.target.checked)}
-              className="mt-1 h-4 w-4 text-orange-500 focus:ring-orange-500 focus:ring-offset-0 rounded border-slate-350 cursor-pointer accent-orange-500"
+              className="mt-1 h-4 w-4 text-[#00AED6] focus:ring-[#00AED6] focus:ring-offset-0 rounded border-slate-350 cursor-pointer accent-[#00AED6]"
             />
             <div className="text-xs sm:text-sm">
               <span className="font-bold text-slate-800 block">Estou ciente da obrigatoriedade dos EPIs</span>
@@ -200,7 +200,7 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
               type="checkbox"
               checked={checkedTerms}
               onChange={(e) => setCheckedTerms(e.target.checked)}
-              className="mt-1 h-4 w-4 text-orange-500 focus:ring-orange-500 focus:ring-offset-0 rounded border-slate-350 cursor-pointer accent-orange-500"
+              className="mt-1 h-4 w-4 text-[#00AED6] focus:ring-[#00AED6] focus:ring-offset-0 rounded border-slate-350 cursor-pointer accent-[#00AED6]"
             />
             <div className="text-xs sm:text-sm">
               <span className="font-bold text-slate-800 block">Concordo em seguir as normas de segurança</span>
@@ -215,10 +215,10 @@ export function StepSafety({ onClearedSecurity, securityCleared }: StepSafetyPro
           {allChecked ? (
             <button
               onClick={handleSubmit}
-              className="w-full sm:w-auto px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-base rounded-xl transition-all duration-300 hover:scale-101 active:scale-98 flex items-center justify-center gap-2 mx-auto shadow-md"
+              className="w-full sm:w-auto px-8 py-4 bg-[#003366] hover:bg-[#002244] text-white font-extrabold text-base rounded-xl transition-all duration-300 hover:scale-101 active:scale-98 flex items-center justify-center gap-2 mx-auto shadow-md cursor-pointer"
             >
-              <ShieldCheck className="h-5 w-5 animate-pulse" />
-              <span>Acessar Código de Agendamento da Visita</span>
+              <ShieldCheck className="h-5 w-5 text-[#00AED6] animate-pulse" />
+              <span>Acessar Formulário de Solicitação de Visita</span>
             </button>
           ) : (
             <div className="max-w-md mx-auto p-4 bg-red-50 rounded-xl border border-red-200 text-xs sm:text-sm text-red-700 font-semibold shadow-xs">

@@ -5,12 +5,24 @@ import { StepSafety } from "./components/StepSafety";
 import { StepForm } from "./components/StepForm";
 import { AdminPanel } from "./components/AdminPanel";
 import { Footer } from "./components/Footer";
-import { VisitRequest, VisitStatus, FeedbackResponse } from "./types";
+import { VisitRequest, VisitStatus, FeedbackResponse, MailLog } from "./types";
 import { getStoredRequests, saveStoredRequests, INITIAL_MOCK_REQUESTS, getStoredFeedbacks, saveStoredFeedbacks, INITIAL_MOCK_FEEDBACKS } from "./utils/mockData";
 import { ShieldCheck, Anchor, Ship, AlertCircle } from "lucide-react";
 
 export default function App() {
   const [currentTab, setTab] = useState<string>("home");
+  
+  // Custom non-blocking Toast state to replace annoying browser alert() popups
+  const [toast, setToast] = useState<{ message: string; type: "success" | "info" | "error" } | null>(null);
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
   
   // Security cleared status (starts as false so user always reviews safety)
   const [securityCleared, setSecurityCleared] = useState<boolean>(false);
@@ -33,6 +45,59 @@ export default function App() {
   const [feedbacks, setFeedbacks] = useState<FeedbackResponse[]>(() => {
     return getStoredFeedbacks();
   });
+
+  // Simulated SMTP server mailbox logs
+  const [mailLogs, setMailLogs] = useState<MailLog[]>(() => {
+    const stored = localStorage.getItem("wilson_sons_mail_logs");
+    if (!stored) {
+      const initialLogs: MailLog[] = [
+        {
+          id: "ML-001",
+          to: "marcos.silveira@portoaustral.com",
+          subject: "🏆 Credencial de Acesso Wilson Sons Liberada - Marcos Aurélio Silveira",
+          date: "2026-05-01 11:20",
+          type: "approval",
+          body: "Olá Marcos Aurélio Silveira,\n\nSua credencial de acesso ao pátio operacional Wilson Sons foi devidamente autorizada pelo SESMT!\n\nAnexo a este e-mail, você recebeu o seu Crachá Virtual de Acesso. Ele acompanha o seu ID WS-REQ-000 e um QR Code correspondente.\n\nPor favor, imprima o crachá em tamanho real (85mm de largura por 135mm de altura) e utilize com um cordão de pescoço durante toda a permanência nas docas.\n\nBons negócios!\nSESMT Wilson Sons",
+          request: INITIAL_MOCK_REQUESTS[0]
+        },
+        {
+          id: "ML-002",
+          to: "carlos.silva@navalcorp.com.br",
+          subject: "🏆 Credencial de Acesso Wilson Sons Liberada - Carlos Eduardo Santos Silva",
+          date: "2026-05-28 15:40",
+          type: "approval",
+          body: "Olá Carlos Eduardo Santos Silva,\n\nSua credencial de acesso ao pátio operacional Wilson Sons foi devidamente autorizada pelo SESMT!\n\nAnexo a este e-mail, você recebeu o seu Crachá Virtual de Acesso. Ele acompanha o seu ID WS-REQ-001 e um QR Code correspondente.\n\nPor favor, imprima o crachá em tamanho real (85mm de largura por 135mm de altura) e utilize com um cordão de pescoço durante toda a permanência nas docas.\n\nBons negócios!\nSESMT Wilson Sons",
+          request: INITIAL_MOCK_REQUESTS[1]
+        }
+      ];
+      try {
+        localStorage.setItem("wilson_sons_mail_logs", JSON.stringify(initialLogs));
+      } catch (e) {
+        console.warn("Falha ao inicializar wilson_sons_mail_logs no localStorage:", e);
+      }
+      return initialLogs;
+    }
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      // Keep only the 10 most recent logs, and strip visitor photos from logs request reference to fit within browser's 5MB quota
+      const sanitizedLogs = mailLogs.slice(0, 10).map((log) => ({
+        ...log,
+        request: log.request 
+          ? { ...log.request, visitorPhoto: "" } 
+          : undefined
+      }));
+      localStorage.setItem("wilson_sons_mail_logs", JSON.stringify(sanitizedLogs));
+    } catch (e) {
+      console.warn("Cota de localStorage excedida ao salvar mail_logs. Limpando logs:", e);
+    }
+  }, [mailLogs]);
 
   // Synchronize database updates to localStorage
   useEffect(() => {
@@ -86,8 +151,13 @@ export default function App() {
   };
 
   // Alter status of solicitation (e.g. approve, reject with reason)
-  const handleChangeStatus = (id: string, nextStatus: VisitStatus, rejectionReason?: string) => {
-    setRequests((prev) =>
+  const handleChangeStatus = async (id: string, nextStatus: VisitStatus, rejectionReason?: string) => {
+    // Find the request immediately
+    const match = requests.find((r) => r.id === id);
+    if (!match) return;
+
+    // First, update requests state
+    setRequests((prev) => 
       prev.map((r) => {
         if (r.id === id) {
           return {
@@ -99,6 +169,73 @@ export default function App() {
         return r;
       })
     );
+
+    // Prepare request object with updated status for mailing
+    const updatedRequest = {
+      ...match,
+      status: nextStatus,
+      rejectionReason: rejectionReason || match.rejectionReason
+    };
+
+    try {
+      const response = await fetch("/api/send-status-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          request: updatedRequest,
+          status: nextStatus,
+          rejectionReason: rejectionReason
+        })
+      });
+
+      let data;
+      if (!response.ok) {
+        let errorMsg = "Falha ao comunicar com o servidor de envio de e-mails.";
+        try {
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const errData = await response.json();
+            errorMsg = errData.error || errData.message || errorMsg;
+          }
+        } catch (e) {}
+        throw new Error(errorMsg);
+      } else {
+        data = await response.json();
+      }
+
+      if (data.success) {
+        if (data.mailLog) {
+          // If the server provides an actual HTML/Text log, save it
+          setMailLogs((prevMails) => [data.mailLog, ...prevMails]);
+        }
+        
+        // Notify user about delivery success using smooth toasts instead of blocking alerts
+        if (data.smtpConfigured && !data.smtpError) {
+          setToast({
+            type: "success",
+            message: `E-mail Real Enviado com Sucesso!\n\n${data.message}`
+          });
+        } else {
+          setToast({
+            type: "info",
+            message: `Notificação registrada!\n\n${data.message}`
+          });
+        }
+      } else {
+        setToast({
+          type: "error",
+          message: `Erro no envio integrado do e-mail: ${data.error}`
+        });
+      }
+    } catch (err: any) {
+      console.error("Transmission Error:", err);
+      setToast({
+        type: "error",
+        message: `Erro ao despachar credencial para o servidor de e-mail: ${err.message}`
+      });
+    }
   };
 
   // Delete solicitation row
@@ -143,8 +280,8 @@ export default function App() {
         {currentTab !== "admin" && currentTab !== "manual" && (
           <div className="mb-8 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-orange-500/10 border border-orange-500/20 rounded-lg text-orange-600">
-                <Ship className="h-5 w-5 animate-pulse text-orange-500" />
+              <div className="p-2.5 bg-[#00AED6]/10 border border-[#00AED6]/20 rounded-lg text-[#003366]">
+                <Ship className="h-5 w-5 animate-pulse text-[#00AED6]" />
               </div>
               <div>
                 <h2 className="text-xs font-mono font-bold text-slate-400 uppercase tracking-widest">
@@ -156,17 +293,17 @@ export default function App() {
               </div>
             </div>
 
-            {/* Steps breadcrumb indicator on top */}
+            {/* Steps breadcrumb indicator on top using Navy/Cyan contrast */}
             <div className="flex items-center gap-1.5 font-mono text-[10px] sm:text-xs">
-              <span className={`px-3 py-1 rounded-full font-medium transition-colors ${currentTab === "home" ? "bg-orange-500 text-white font-bold shadow-xs" : "bg-slate-100 text-slate-600 border border-slate-200"}`}>
+              <span className={`px-3 py-1 rounded-full font-medium transition-colors ${currentTab === "home" ? "bg-[#003366] text-white font-bold border border-[#003366] shadow-xs" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                 1. Início
               </span>
-              <span className="text-slate-300">→</span>
-              <span className={`px-3 py-1 rounded-full font-medium transition-colors ${currentTab === "safety" ? "bg-orange-550 text-white font-bold shadow-xs" : securityCleared ? "bg-emerald-50 text-emerald-700 border border-emerald-250 font-semibold" : "bg-slate-100 text-slate-600 border border-slate-200"}`}>
+              <span className="text-[#00AED6] font-bold">→</span>
+              <span className={`px-3 py-1 rounded-full font-medium transition-colors ${currentTab === "safety" ? "bg-[#003366] text-white font-bold border border-[#003366] shadow-xs" : securityCleared ? "bg-emerald-50 text-emerald-700 border border-emerald-250 font-semibold" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                 2. Segurança {securityCleared ? "✓" : ""}
               </span>
-              <span className="text-slate-300">→</span>
-              <span className={`px-3 py-1 rounded-full font-medium transition-colors ${currentTab === "form" ? "bg-orange-500 text-white font-bold shadow-xs" : "bg-slate-100 text-slate-600 border border-slate-200"}`}>
+              <span className="text-[#00AED6] font-bold">→</span>
+              <span className={`px-3 py-1 rounded-full font-medium transition-colors ${currentTab === "form" ? "bg-[#003366] text-white font-bold border border-[#003366] shadow-xs" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                 3. Formulário
               </span>
             </div>
@@ -176,7 +313,7 @@ export default function App() {
         {/* Displaying active components based on tab state */}
         <div className="animate-fade-in">
           {currentTab === "home" && (
-            <StepHome onStartRequest={handleStartRequest} />
+            <StepHome onStartRequest={handleStartRequest} requests={requests} />
           )}
 
           {currentTab === "safety" && (
@@ -205,12 +342,40 @@ export default function App() {
               feedbacks={feedbacks}
               setFeedbacks={setFeedbacks}
               setRequests={setRequests}
+              mailLogs={mailLogs}
+              setMailLogs={setMailLogs}
               isAuthenticated={isAdminAuthenticated}
               setIsAuthenticated={setIsAdminAuthenticated}
             />
           )}
         </div>
       </main>
+
+      {/* Modern custom toast notification system */}
+      {toast && (
+        <div key={toast.message} className={`fixed bottom-6 right-6 z-[99999] p-4 rounded-xl shadow-2xl border text-xs max-w-sm animate-fade-in flex items-start gap-3 transition-all text-left ${
+          toast.type === "success" 
+            ? "bg-emerald-50 border-emerald-300 text-emerald-950" 
+            : toast.type === "error"
+            ? "bg-rose-50 border-rose-300 text-rose-950"
+            : "bg-amber-50 border-amber-300 text-amber-950"
+        }`}>
+          <span className="text-base shrink-0 select-none">
+            {toast.type === "success" ? "✅" : toast.type === "error" ? "⚠️" : "ℹ️"}
+          </span>
+          <div className="flex-1 space-y-1">
+            <div className="font-extrabold uppercase tracking-wider text-[10px] text-slate-500">Notificação SESMT</div>
+            <p className="font-semibold whitespace-pre-line leading-relaxed">{toast.message}</p>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setToast(null)} 
+            className="text-slate-400 hover:text-slate-700 font-extrabold ml-1 text-sm select-none cursor-pointer p-0.5"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Mandatory Corporate Footer including the Academy credit */}
       <Footer />
