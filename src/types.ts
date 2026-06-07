@@ -58,6 +58,6 @@ export interface MailLog {
   body: string;
   htmlBody?: string;
   request: VisitRequest;
-  type: "approval" | "feedback" | "rejection";
+  type: "approval" | "feedback" | "rejection" | "confirmation";
 }
 

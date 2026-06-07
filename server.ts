@@ -58,15 +58,7 @@ async function startServer() {
   const configPath = path.join(process.cwd(), "form-config.json");
 
   function readConfig() {
-    try {
-      if (fs.existsSync(configPath)) {
-        const data = fs.readFileSync(configPath, "utf-8");
-        return JSON.parse(data);
-      }
-    } catch (e) {
-      console.error("Erro ao ler form-config.json:", e);
-    }
-    return {
+    const baseDefaults = {
       googleFormsUrl: "https://docs.google.com/forms/d/e/1FAIpQLSdha_LdNmV5ooGmcaG0tdOMczd8Xn1EvaOFE-KAri2f_pEezg/viewform",
       mappings: {
         fullName: "entry.731264085",
@@ -78,8 +70,31 @@ async function startServer() {
         visitorCount: "entry.1943855474",
         scheduledDate: "entry.666260665",
         purpose: "entry.1129131450"
-      }
+      },
+      smtpHost: "smtp.gmail.com",
+      smtpPort: "587",
+      smtpUser: "simasthiago85@gmail.com",
+      smtpPass: "amqw qcyb exav uwcy",
+      smtpFrom: "sesmt@wilsonsons.com.br"
     };
+
+    try {
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, "utf-8");
+        const parsed = JSON.parse(data);
+        return {
+          ...baseDefaults,
+          ...parsed,
+          mappings: {
+            ...baseDefaults.mappings,
+            ...(parsed.mappings || {})
+          }
+        };
+      }
+    } catch (e) {
+      console.error("Erro ao ler form-config.json:", e);
+    }
+    return baseDefaults;
   }
 
   function saveConfig(newConfig: any) {
@@ -413,6 +428,9 @@ async function startServer() {
           user: user,
           pass: pass,
         },
+        tls: {
+          rejectUnauthorized: false
+        },
         connectionTimeout: 5000, 
         greetingTimeout: 4000,   
         socketTimeout: 8000      
@@ -425,6 +443,9 @@ async function startServer() {
           auth: {
             user: user,
             pass: pass,
+          },
+          tls: {
+            rejectUnauthorized: false
           }
         };
       }
@@ -476,6 +497,240 @@ async function startServer() {
     }
   });
 
+  const registrationsPath = path.join(process.cwd(), "registrations.json");
+  const feedbacksPath = path.join(process.cwd(), "feedbacks.json");
+
+  // Initial mock requests for server seed
+  const INITIAL_MOCK_REQUESTS_SERVER = [
+    {
+      id: "WS-REQ-000",
+      fullName: "Marcos Aurélio Silveira",
+      cpf: "111.555.999-88",
+      email: "marcos.silveira@portoaustral.com",
+      phone: "(27) 99341-2288",
+      organization: "Porto Austral Logística",
+      cityState: "Vitória - ES",
+      visitorCount: 3,
+      scheduledDate: "2026-05-15",
+      purpose: "Visita de intercâmbio operacional para conhecer os rebocadores e os guindastes móveis STS.",
+      status: "APPROVED",
+      submissionDate: "2026-05-01",
+      securityCleared: true,
+      securityConsentDate: "2026-05-01T10:14:00Z",
+      aiSuggestions: "### 💡 Pontos de Interesse Wilson Sons recomendados\n- **Frota de Rebocadores de Apoio Portuário**: Perfeito para o alinhamento de intercâmbio de práticas de manobra e atracação.\n- **Tecon Salvador/Rio Grande**: Agendar visita técnica acompanhada ao CCO para analisar os sistemas de despacho dos guindastes móveis STS.\n\n### 🕒 Recomendação de Horário e Logística\nSugerido turno da tarde entre 14:00 e 16:30 para observar a operação real de atracação com calado favorável.\n\n### 🛡️ Precauções Específicas de Segurança\nObrigatório o uso de botas de biqueira de aço, óculos escuros de segurança UV e capacete com jugular no pátio de containers.",
+      feedbackSent: true,
+      feedbackSentDate: "2026-05-16T09:00:00Z"
+    },
+    {
+      id: "WS-REQ-001",
+      fullName: "Carlos Eduardo Santos Silva",
+      cpf: "123.456.789-00",
+      email: "carlos.silva@navalcorp.com.br",
+      phone: "(21) 98765-4321",
+      organization: "NavalCorp Logística",
+      cityState: "Rio de Janeiro - RJ",
+      visitorCount: 4,
+      scheduledDate: "2026-06-15",
+      purpose: "Visita técnica de alinhamento operacional para descarga de containers de cargas sobredimensionadas.",
+      status: "APPROVED",
+      submissionDate: "2026-05-28",
+      securityCleared: true,
+      securityConsentDate: "2026-05-28T14:32:00Z",
+      aiSuggestions: "### 💡 Pontos de Interesse Wilson Sons recomendados\n- **Tecon Rio Grande / Tecon Salvador**: Sugerimos focar no gate portuário e no terminal de descarga, onde operam os guindastes cargueiros pesados para otimização espacial do layout de mercadorias sobredimensionadas.\n- **CCO (Centro de Controle Operacional)**: Para examinar a documentação alfandegária digital em tempo real.\n\n### 🕒 Recomendação de Horário e Logística\nAgendar preferencialmente no meio de semana (Terça ou Quarta-feira) no turno da manhã (09:00 - 11:30), minimizando tempo de espera nas instâncias alfandegárias durante picos de navios porta-containeres.\n\n### 🛡️ Precauções Específicas de Segurança\nObrigatório o uso de colete refletivo classe 2 de cor laranja devido ao fluxo intenso de carretas pesadas nas proximidades do terminal de descarga."
+    },
+    {
+      id: "WS-REQ-002",
+      fullName: "Mariana Alencar Guimarães",
+      cpf: "987.654.321-11",
+      email: "mariana.g@ufrj.br",
+      phone: "(21) 99123-5566",
+      organization: "Universidade Federal do Rio de Janeiro (UFRJ)",
+      cityState: "Rio de Janeiro - RJ",
+      visitorCount: 15,
+      scheduledDate: "2026-06-22",
+      purpose: "Visita acadêmica com estudantes de Engenharia Naval para conhecer o estaleiro e controle de rebocadores.",
+      status: "PENDING",
+      submissionDate: "2026-06-01",
+      securityCleared: true,
+      securityConsentDate: "2026-06-01T09:12:15Z"
+    },
+    {
+      id: "WS-REQ-003",
+      fullName: "Ricardo Barbosa Mendes",
+      cpf: "456.789.012-33",
+      email: "ricardo.mendes@portobrasil.org",
+      phone: "(27) 98111-2233",
+      organization: "Associação Portuária Brasil",
+      cityState: "Vitória - ES",
+      visitorCount: 2,
+      scheduledDate: "2026-06-10",
+      status: "PENDING",
+      purpose: "Estudo comparativo de eficiência logística portuária e novos guindastes móveis STS.",
+      submissionDate: "2026-06-02",
+      securityCleared: true,
+      securityConsentDate: "2026-06-02T16:22:40Z"
+    },
+    {
+      id: "WS-REQ-004",
+      fullName: "Ana Beatriz de Oliveira",
+      cpf: "111.222.333-44",
+      email: "anabeatriz@energiamarinha.com",
+      phone: "(11) 97766-8899",
+      organization: "MarAzul Pesquisas Oceânicas",
+      cityState: "Santos - SP",
+      visitorCount: 6,
+      scheduledDate: "2026-05-25",
+      purpose: "Visita de inspeção ambiental prévia para credenciamento de rebocadores híbridos.",
+      status: "REJECTED",
+      submissionDate: "2026-05-20",
+      securityCleared: true,
+      securityConsentDate: "2026-05-20T11:05:12Z",
+      rejectionReason: "Problemas na documentação complementar ambiental apresentada."
+    }
+  ];
+
+  const INITIAL_MOCK_FEEDBACKS_SERVER = [
+    {
+      id: "FB-001",
+      requestId: "WS-REQ-000",
+      visitorName: "Marcos Aurélio Silveira",
+      organization: "Porto Austral Logística",
+      visitDate: "2026-05-15",
+      organizationRating: 5,
+      safetyRating: 5,
+      usefulnessRating: 5,
+      comments: "Visita impecável e muito produtiva. A equipe de segurança foi extremamente rigorosa e atenciosa com o treinamento de EPI. O Centro de Controle Operacional nos deu excelentes ideias para o nosso terminal.",
+      submissionDate: "2026-05-16"
+    }
+  ];
+
+  function readRegistrations() {
+    try {
+      if (fs.existsSync(registrationsPath)) {
+        const data = fs.readFileSync(registrationsPath, "utf-8");
+        return JSON.parse(data);
+      }
+    } catch (e) {
+      console.error("Erro ao ler registrations.json:", e);
+    }
+    // Initialize if doesn't exist
+    try {
+      fs.writeFileSync(registrationsPath, JSON.stringify(INITIAL_MOCK_REQUESTS_SERVER, null, 2), "utf-8");
+    } catch (_) {}
+    return INITIAL_MOCK_REQUESTS_SERVER;
+  }
+
+  function writeRegistrations(data: any) {
+    try {
+      fs.writeFileSync(registrationsPath, JSON.stringify(data, null, 2), "utf-8");
+      return true;
+    } catch (e) {
+      console.error("Erro ao salvar registrations.json:", e);
+      return false;
+    }
+  }
+
+  function readFeedbacks() {
+    try {
+      if (fs.existsSync(feedbacksPath)) {
+        const data = fs.readFileSync(feedbacksPath, "utf-8");
+        return JSON.parse(data);
+      }
+    } catch (e) {
+      console.error("Erro ao ler feedbacks.json:", e);
+    }
+    // Initialize if doesn't exist
+    try {
+      fs.writeFileSync(feedbacksPath, JSON.stringify(INITIAL_MOCK_FEEDBACKS_SERVER, null, 2), "utf-8");
+    } catch (_) {}
+    return INITIAL_MOCK_FEEDBACKS_SERVER;
+  }
+
+  function writeFeedbacks(data: any) {
+    try {
+      fs.writeFileSync(feedbacksPath, JSON.stringify(data, null, 2), "utf-8");
+      return true;
+    } catch (e) {
+      console.error("Erro ao salvar feedbacks.json:", e);
+      return false;
+    }
+  }
+
+  // Endpoints for registrations/requests
+  app.get("/api/requests", (req, res) => {
+    return res.json(readRegistrations());
+  });
+
+  app.post("/api/requests", (req, res) => {
+    const newRequest = req.body;
+    const current = readRegistrations();
+    // Check if duplicate already exists (e.g., recorded on Google Form submission capture)
+    const duplicateIndex = current.findIndex((r: any) => r.cpf === newRequest.cpf && r.scheduledDate === newRequest.scheduledDate);
+    if (duplicateIndex !== -1) {
+      current[duplicateIndex] = {
+        ...current[duplicateIndex],
+        ...newRequest,
+        visitorPhoto: newRequest.visitorPhoto || current[duplicateIndex].visitorPhoto,
+        aiSuggestions: newRequest.aiSuggestions || current[duplicateIndex].aiSuggestions
+      };
+      writeRegistrations(current);
+
+      console.log(`[Auto-Confirmation] Duplicado recebido para ${current[duplicateIndex].id} – Atualizado no banco, e-mail de confirmação já enviado anteriormente.`);
+
+      return res.json({ success: true, request: current[duplicateIndex], message: "Duplicate updated with photo/suggestions" });
+    }
+    const updated = [newRequest, ...current];
+    writeRegistrations(updated);
+
+    // Send automatic registration confirmation email
+    sendNotificationEmail(newRequest, "PENDING")
+      .then((resp) => console.log(`[Auto-Confirmation] Sent confirmation email for ${newRequest.id} to ${newRequest.email}:`, resp.message))
+      .catch((err) => console.error(`[Auto-Confirmation] Failed to send email for ${newRequest.id}:`, err));
+
+    return res.json({ success: true, request: newRequest });
+  });
+
+  app.put("/api/requests/:id", (req, res) => {
+    const { id } = req.params;
+    const updatedFields = req.body;
+    const current = readRegistrations();
+    const updated = current.map((r: any) => {
+      if (r.id === id) {
+        return { ...r, ...updatedFields };
+      }
+      return r;
+    });
+    writeRegistrations(updated);
+    return res.json({ success: true });
+  });
+
+  app.delete("/api/requests/:id", (req, res) => {
+    const { id } = req.params;
+    const current = readRegistrations();
+    const updated = current.filter((r: any) => r.id !== id);
+    writeRegistrations(updated);
+    return res.json({ success: true });
+  });
+
+  app.post("/api/reset-requests", (req, res) => {
+    writeRegistrations(INITIAL_MOCK_REQUESTS_SERVER);
+    writeFeedbacks(INITIAL_MOCK_FEEDBACKS_SERVER);
+    return res.json({ success: true, requests: INITIAL_MOCK_REQUESTS_SERVER, feedbacks: INITIAL_MOCK_FEEDBACKS_SERVER });
+  });
+
+  // Endpoints for feedbacks
+  app.get("/api/feedbacks", (req, res) => {
+    return res.json(readFeedbacks());
+  });
+
+  app.post("/api/feedbacks", (req, res) => {
+    const newFeedback = req.body;
+    const current = readFeedbacks();
+    const updated = [newFeedback, ...current];
+    writeFeedbacks(updated);
+    return res.json({ success: true, feedback: newFeedback });
+  });
+
   // API to submit the integrated form data directly to Google Forms (Sheets)
   app.post("/api/submit-to-google-form", async (req, res) => {
     const { 
@@ -487,7 +742,8 @@ async function startServer() {
       cityState, 
       visitorCount, 
       scheduledDate, 
-      purpose 
+      purpose,
+      visitorPhoto
     } = req.body;
 
     try {
@@ -564,6 +820,45 @@ async function startServer() {
           }
         } catch (e) {
           console.error("Erro ao ler corpo da resposta de erro do Google Forms:", e);
+        }
+      }
+
+      if (responseOk) {
+        // Save the request to the persistent server database registrations.json
+        try {
+          const current = readRegistrations();
+          const isDuplicate = current.some((r: any) => r.cpf === cpf && r.scheduledDate === scheduledDate);
+          if (!isDuplicate) {
+            const nextIdNumber = current.length + 1;
+            const formattedId = `WS-REQ-${String(nextIdNumber).padStart(3, "0")}`;
+            const newRequest = {
+              fullName: fullName || "",
+              cpf: cpf || "",
+              email: email || "",
+              phone: phone || "",
+              organization: organization || "",
+              cityState: cityState || "",
+              visitorCount: Number(visitorCount || 1),
+              scheduledDate: scheduledDate || "",
+              purpose: purpose || "",
+              id: formattedId,
+              status: "PENDING",
+              submissionDate: new Date().toISOString().slice(0, 10),
+              securityCleared: true,
+              securityConsentDate: new Date().toISOString(),
+              visitorPhoto: visitorPhoto || ""
+            };
+            const updated = [newRequest, ...current];
+            writeRegistrations(updated);
+            console.log(`Wilson Sons – Salvo registro de visita automaticamente no servidor: ${formattedId}`);
+
+            // Send automatic/integrated confirmation email immediately after form submission
+            sendNotificationEmail(newRequest, "PENDING")
+              .then((resp) => console.log(`[Form-Submission] Sent confirmation email for ${formattedId} to ${newRequest.email}:`, resp.message))
+              .catch((err) => console.error(`[Form-Submission] Failed to send confirmation email for ${formattedId}:`, err));
+          }
+        } catch (e) {
+          console.error("Wilson Sons – Erro ao salvar registro inserido na submissão do google-form:", e);
         }
       }
 
@@ -698,6 +993,451 @@ Olá, **${fullName || "Prezado Cliente"}** representativo de **${organization ||
     }
   });
 
+  const mailLogsPath = path.join(process.cwd(), "mail-logs.json");
+
+  function readMailLogs() {
+    try {
+      if (fs.existsSync(mailLogsPath)) {
+        const data = fs.readFileSync(mailLogsPath, "utf-8");
+        return JSON.parse(data);
+      }
+    } catch (e) {
+      console.error("Erro ao ler mail-logs.json:", e);
+    }
+    return [
+      {
+        id: "ML-001",
+        to: "marcos.silveira@portoaustral.com",
+        subject: "🏆 Credencial de Acesso Wilson Sons Liberada - Marcos Aurélio Silveira",
+        date: "2026-06-05 11:20",
+        type: "approval",
+        body: "Olá Marcos Aurélio Silveira,\n\nSua credencial de acesso ao pátio operacional Wilson Sons foi devidamente autorizada pelo SESMT!\n\nAnexo a este e-mail, você recebeu o seu Crachá Virtual de Acesso. Ele acompanha o seu ID WS-REQ-000 e um QR Code correspondente.\n\nPor favor, imprima o crachá em tamanho real (85mm de largura por 135mm de altura) e utilize com um cordão de pescoço durante toda a segurança.",
+        request: {
+          id: "WS-REQ-000",
+          fullName: "Marcos Aurélio Silveira",
+          cpf: "111.555.999-88",
+          email: "marcos.silveira@portoaustral.com",
+          phone: "(27) 99341-2288",
+          organization: "Porto Austral Logística",
+          cityState: "Vitória - ES",
+          visitorCount: 3,
+          scheduledDate: "2026-05-15",
+          purpose: "Visita de intercâmbio operacional para conhecer os rebocadores e os guindastes móveis STS.",
+          status: "APPROVED",
+          submissionDate: "2026-05-01",
+          securityCleared: true,
+          securityConsentDate: "2026-05-01T10:14:00Z"
+        }
+      }
+    ];
+  }
+
+  function writeMailLogs(logs: any[]) {
+    try {
+      fs.writeFileSync(mailLogsPath, JSON.stringify(logs, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Erro ao salvar mail-logs.json:", e);
+    }
+  }
+
+  async function sendNotificationEmail(request: any, status: string, rejectionReason?: string) {
+    const config = readConfig();
+    const host = config.smtpHost || process.env.SMTP_HOST || "";
+    const port = parseInt(config.smtpPort || process.env.SMTP_PORT || "587");
+    const user = (config.smtpUser || process.env.SMTP_USER || "").trim();
+    let pass = config.smtpPass || process.env.SMTP_PASS || "";
+
+    if (pass) {
+      const trimmedPass = pass.trim();
+      const strippedPass = trimmedPass.replace(/\s+/g, "");
+      if (
+        (strippedPass.length === 16 && /^[a-zA-Z]+$/.test(strippedPass)) ||
+        host.includes("gmail") || 
+        host.includes("google")
+      ) {
+        pass = strippedPass;
+      } else {
+        pass = trimmedPass;
+      }
+    }
+
+    const fromAddr = process.env.SMTP_FROM || config.smtpFrom || user || "sesmt@wilsonsons.com.br";
+    const isSmtpConfigured = host !== "" && user !== "" && pass !== "";
+
+    // Determine target notification type with multi-layered fallback checks for maximum safety
+    const statusLower = typeof status === "string" ? status.trim().toLowerCase() : "";
+    const reqStatusLower = (request && typeof request.status === "string") ? request.status.trim().toLowerCase() : "";
+
+    console.log(`[sendNotificationEmail] Matching status. Parameter status: "${status}" (lower: "${statusLower}"), Request object status: "${request ? request.status : "undefined"}" (lower: "${reqStatusLower}")`);
+
+    // Prioritize explicit status parameter, fallback to request status representation if missing/empty
+    let isApproved = false;
+    let isRejected = false;
+
+    if (statusLower === "approved" || statusLower === "aprovado" || statusLower.startsWith("aprov")) {
+      isApproved = true;
+    } else if (statusLower === "rejected" || statusLower === "rejeitado" || statusLower.startsWith("rejeit") || statusLower.startsWith("recus")) {
+      isRejected = true;
+    } else if (statusLower === "pending" || statusLower === "pendente" || statusLower.startsWith("pend")) {
+      // Explicitly registering or setting back to Pending - sends registration confirmation
+    } else {
+      // Fallback check based on request object status properties
+      if (reqStatusLower === "approved" || reqStatusLower === "aprovado" || reqStatusLower.startsWith("aprov")) {
+        isApproved = true;
+      } else if (reqStatusLower === "rejected" || reqStatusLower === "rejeitado" || reqStatusLower.startsWith("rejeit") || reqStatusLower.startsWith("recus")) {
+        isRejected = true;
+      }
+    }
+
+    const isPending = !isApproved && !isRejected;
+
+    console.log(`[sendNotificationEmail] Resolved type: isApproved = ${isApproved}, isRejected = ${isRejected}, isPending = ${isPending}`);
+
+    const dateStr = request.scheduledDate ? request.scheduledDate.split("-").reverse().join("/") : "";
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(request.id)}&color=003366`;
+
+    // Process photo CID attachment
+    const attachments: any[] = [];
+    let photoSrc = "";
+    if (request.visitorPhoto) {
+      if (typeof request.visitorPhoto === "string" && request.visitorPhoto.startsWith("data:")) {
+        console.log("[sendNotificationEmail] Parsing base64 visitorPhoto data-url...");
+        const parts = request.visitorPhoto.split(";base64,");
+        if (parts.length === 2) {
+          const contentType = parts[0].replace("data:", "").trim();
+          // Remove any whitespaces/newlines from base64 content to prevent SMTP line corruption or parsing bugs
+          const base64Content = parts[1].replace(/\s/g, "");
+          const ext = contentType.split("/")[1] || "jpg";
+          attachments.push({
+            filename: `foto_credenciado.${ext}`,
+            content: Buffer.from(base64Content, "base64"),
+            cid: "visitorPhoto"
+          });
+          photoSrc = "cid:visitorPhoto";
+          console.log(`[sendNotificationEmail] Successfully attached photo inline with CID representation. Extension: ${ext}`);
+        } else {
+          console.warn("[sendNotificationEmail] Base64 visitorPhoto format is non-standard. Stripping to empty.");
+          photoSrc = "";
+        }
+      } else {
+        photoSrc = request.visitorPhoto;
+      }
+    }
+
+    let htmlBody = "";
+    let subject = "";
+    let type: "approval" | "rejection" | "confirmation" = "rejection";
+
+    if (isApproved) {
+      type = "approval";
+      subject = `🏆 Credencial de Acesso Wilson Sons Liberada - ${request.fullName}`;
+      htmlBody = `
+      <div style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 30px 15px; color: #1e293b; text-align: left;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+          <div style="background-color: #003366; padding: 25px 20px; text-align: center; border-bottom: 4px solid #F58220;">
+            <h1 style="color: #ffffff; font-size: 20px; font-weight: 800; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">Wilson Sons</h1>
+            <p style="color: #e2e8f0; font-size: 11px; font-weight: 700; margin: 5px 0 0 0; text-transform: uppercase; letter-spacing: 1.5px;">Credencial de Acesso Homologada - SESMT</p>
+          </div>
+          <div style="padding: 25px 30px;">
+            <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 0;">
+              Olá, <strong>${request.fullName}</strong>,
+            </p>
+            <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+              Temos a satisfação de informar que a sua credencial para visita operacional em nome da empresa <strong>${request.organization}</strong> foi analisada e <strong>APROVADA</strong> pelo nosso SESMT (Serviço Especializado em Engenharia de Segurança e em Medicina do Trabalho)!
+            </p>
+            
+            <div style="margin: 30px auto; max-width: 380px; background-color: #f8fafc; border: 2px solid #003366; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
+              <div style="background-color: #003366; padding: 15px; text-align: center; border-bottom: 3px solid #F58220;">
+                <div style="color: #ffffff; font-size: 15px; font-weight: 800; letter-spacing: 0.5px;">WILSON SONS</div>
+                <div style="color: #F58220; font-size: 8px; font-weight: 800; letter-spacing: 2px;">CREDENCIAL DE ACESSO</div>
+              </div>
+              <div style="padding: 20px 15px; background: #ffffff;">
+                <div style="display: table; width: 100%;">
+                  <div style="display: table-row;">
+                    <div style="display: table-cell; width: 45%; vertical-align: top; text-align: center;">
+                      ${photoSrc ? `
+                        <div style="width: 115px; height: 145px; border: 2px solid #cbd5e1; border-radius: 8px; overflow: hidden; background-color: #f1f5f9; display: inline-block;">
+                          <img src="${photoSrc}" alt="Foto" style="width: 100%; height: 100%; object-fit: cover;" />
+                        </div>
+                      ` : `
+                        <div style="width: 115px; height: 145px; border: 2px dashed #94a3b8; border-radius: 8px; background-color: #f8fafc; display: table; text-align: center;">
+                          <div style="display: table-cell; vertical-align: middle; color: #94a3b8; font-size: 10px; font-weight: bold; padding: 5px;">
+                            TRAGA FOTO 3X4 OU DOCUMENTO
+                          </div>
+                        </div>
+                      `}
+                      <div style="margin-top: 8px; font-size: 10px; color: #64748b; font-weight: bold;">FOTO PORTAL</div>
+                    </div>
+                    <div style="display: table-cell; width: 55%; vertical-align: top; padding-left: 15px; text-align: center;">
+                      <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; display: inline-block;">
+                        <img src="${qrCodeUrl}" alt="QR Code" style="width: 115px; height: 115px; display: block;" />
+                      </div>
+                      <div style="margin-top: 5px; font-family: monospace; font-size: 11px; font-weight: bold; color: #0f172a; text-transform: uppercase;">
+                        ID: ${request.id}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div style="border-top: 1px solid #f1f5f9; margin-top: 15px; padding-top: 12px;">
+                  <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                    <tr>
+                      <td style="color: #64748b; padding-bottom: 4px; font-weight: bold;">NOME:</td>
+                      <td style="color: #0d172a; font-weight: 800; padding-bottom: 4px; text-transform: uppercase;">${request.fullName}</td>
+                    </tr>
+                    <tr>
+                      <td style="color: #64748b; padding-bottom: 4px; font-weight: bold;">DOCUMENTO:</td>
+                      <td style="color: #0d172a; font-weight: bold; padding-bottom: 4px; font-family: monospace;">${request.cpf}</td>
+                    </tr>
+                    <tr>
+                      <td style="color: #64748b; padding-bottom: 4px; font-weight: bold;">ENTIDADE:</td>
+                      <td style="color: #0d172a; font-weight: bold; padding-bottom: 4px; text-transform: uppercase;">${request.organization}</td>
+                    </tr>
+                    <tr>
+                      <td style="color: #64748b; font-weight: bold;">DATA AGENDADA:</td>
+                      <td style="color: #ea580c; font-weight: 800;">${dateStr}</td>
+                    </tr>
+                  </table>
+                </div>
+              </div>
+              <div style="background-color: #F58220; padding: 8px 10px; text-align: center; font-size: 9px; color: #ffffff; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
+                USO OBRIGATÓRIO DE EPI NO PÁTIO OPERACIONAL
+              </div>
+            </div>
+
+            <div style="background-color: #f1f5f9; border-left: 4px solid #ea580c; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #ea580c; text-transform: uppercase; letter-spacing: 0.5px;">Instruções ao Portador (Diretrizes do SESMT)</h4>
+              <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #475569; line-height: 1.6;">
+                <li><strong>Impressão Obrigatória:</strong> Imprima esta credencial em tamanho real (85mm x 135mm) e utilize com um cordão de pescoço durante toda a segurança.</li>
+                <li><strong>EPIs Básicos Obrigatórios:</strong> Calçado fechado de segurança (botina), capacete com jugular, óculos de proteção e colete refletivo durante toda a permanência no terminal operacional.</li>
+                <li><strong>Documento de Identidade:</strong> Apresente esta credencial acompanhada de documento original com foto na portaria de segurança.</li>
+              </ul>
+            </div>
+            <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+              Desejamos-lhe uma excelente e produtiva visita técnica portuária!
+            </p>
+          </div>
+          <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #f1f5f9; font-size: 11px; color: #94a3b8;">
+            Este e-mail é gerado de forma automática e integrada pelo portal da Wilson Sons.<br />
+            Favor não responder diretamente a este endereço.
+          </div>
+        </div>
+      </div>`;
+    } else if (isRejected) {
+      type = "rejection";
+      subject = `❌ Visita Operacional Wilson Sons Não Autorizada - ${request.fullName}`;
+      htmlBody = `
+      <div style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 30px 15px; color: #1e293b; text-align: left;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+          <div style="background-color: #ef4444; padding: 25px 20px; text-align: center; border-bottom: 4px solid #b91c1c;">
+            <h1 style="color: #ffffff; font-size: 18px; font-weight: 800; margin: 0; text-transform: uppercase;">Wilson Sons</h1>
+            <p style="color: #fee2e2; font-size: 11px; font-weight: 700; margin: 5px 0 0 0; text-transform: uppercase; letter-spacing: 1.5px;">Análise Técnica de Segurança - SESMT</p>
+          </div>
+          <div style="padding: 25px 30px;">
+            <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 0;">
+              Prezado(a) <strong>${request.fullName}</strong>,
+            </p>
+            <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+              Lamentamos informar que a sua solicitação de acesso para a empresa <strong>${request.organization}</strong> não pôde ser autorizada pela equipe técnica de Segurança do Trabalho e Engenharia Geral neste momento.
+            </p>
+            
+            <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #b91c1c; text-transform: uppercase; letter-spacing: 0.5px;">Motivo Indicado para não Homologação</h4>
+              <p style="margin: 0; font-size: 13px; color: #7f1d1d; line-height: 1.6; font-style: italic;">
+                "${rejectionReason || "Não atende aos critérios regulamentares mínimos exigidos de segurança operacional, ou dados insuficientes da ficha de agendamento."}"
+              </p>
+            </div>
+            <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+              Caso deseje adequar os requisitos, você poderá submeter uma nova solicitação contendo as devidas adequações através do nosso Portal Integrado de Agendamento.
+            </p>
+          </div>
+          <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #f1f5f9; font-size: 11px; color: #94a3b8;">
+            Este e-mail é gerado de forma automática e integrada pelo portal de Segurança da Wilson Sons.<br />
+            Favor não responder diretamente a este endereço.
+          </div>
+        </div>
+      </div>`;
+    } else {
+      type = "confirmation";
+      subject = `📝 Confirmação de Solicitação de Visita - Wilson Sons`;
+      htmlBody = `
+      <div style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 30px 15px; color: #1e293b; text-align: left;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+          <div style="background-color: #003366; padding: 25px 20px; text-align: center; border-bottom: 4px solid #F58220;">
+            <h1 style="color: #ffffff; font-size: 20px; font-weight: 800; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">Wilson Sons</h1>
+            <p style="color: #ffffff; font-size: 11px; font-weight: 700; margin: 5px 0 0 0; text-transform: uppercase; letter-spacing: 1.5px;">Segurança Portuária & SESMT</p>
+          </div>
+          
+          <div style="padding: 25px 30px;">
+            <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 0;">
+              Olá, <strong>${request.fullName}</strong>,
+            </p>
+            <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+              Recebemos com sucesso a sua solicitação de agendamento de visita operacional para a empresa <strong>${request.organization}</strong> com ID de protocolo <strong>${request.id}</strong>.
+            </p>
+            
+            <div style="background-color: #f1f5f9; border-left: 4px solid #F58220; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #ea580c; text-transform: uppercase; letter-spacing: 0.5px;">Regulamento Geral & EPIs Obrigatórios</h4>
+              <p style="margin: 0; font-size: 13px; color: #475569; line-height: 1.6;">
+                Sua ficha de visita foi indexada no nosso banco de dados. O acesso à área operacional exige o cumprimento estrito das normas de segurança:
+              </p>
+              <ul style="margin: 10px 0 0 0; padding-left: 20px; font-size: 12px; color: #475569; line-height: 1.6;">
+                <li><strong>Capacete com Jugular:</strong> Fornecido ou trazido para proteção contra quedas de objetos ou batidas físicas.</li>
+                <li><strong>Óculos de Segurança:</strong> Proteção ocular inteira nas áreas portuárias.</li>
+                <li><strong>Colete Refletivo Classe 2:</strong> De alta visibilidade para sinalização ativa de dia ou de noite.</li>
+                <li><strong>Botina de Segurança:</strong> Com biqueira de proteção e sola antiderrapante.</li>
+              </ul>
+            </div>
+
+            <p style="font-size: 14px; line-height: 1.5; color: #334155;">
+              <strong>Próximos passos:</strong> O SESMT analisará o seu pedido técnico para validar os objetivos legais e a conformidade com as regras de aduana e logística do terminal.
+            </p>
+            <p style="font-size: 14px; line-height: 1.5; color: #334155;">
+              Você receberá uma nova notificação por e-mail contendo sua credencial com QR Code (caso aprovada) ou informando as razões regulatórias (caso recusada).
+            </p>
+
+            <p style="font-size: 13px; line-height: 1.6; color: #475569; border-top: 1px dashed #cbd5e1; padding-top: 15px; text-align: center;">
+              Protocolo: <strong>${request.id}</strong> | Data Solicitada: <strong>${dateStr}</strong>
+            </p>
+          </div>
+          
+          <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #f1f5f9; font-size: 11px; color: #94a3b8;">
+            Este e-mail é gerado de forma automática e integrada pelo portal da Wilson Sons.<br />
+            Favor não responder diretamente a este endereço.
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // Build mail log schema
+    const mailLog = {
+      id: `ML-${String(Date.now()).slice(-6)}`,
+      to: request.email,
+      subject: subject,
+      date: new Date().toISOString().slice(0, 16).replace("T", " "),
+      type: type,
+      body: isApproved 
+        ? `Prezado(a) ${request.fullName},\n\nSua credencial de visita portuária Wilson Sons foi APROVADA com sucesso!\n\nSua credencial (85mm x 135mm) de acesso com QR Code oficial e foto foi gerada no sistema.\n\nID do Crachá: ${request.id}\nData Agendada: ${dateStr}\nEmail de destino: ${request.email}`
+        : isRejected
+          ? `Prezado(a) ${request.fullName},\n\nSua visita portuária não atende aos requisitos de segurança do trabalho no momento.\n\nMotivo da recusa:\n"${rejectionReason || "Não conformidade técnica no preenchimento."}"`
+          : `Prezado(a) ${request.fullName},\n\nSua solicitação de agendamento de visita operacional Wilson Sons foi recebida com sucesso e está em análise pelo SESMT.\n\nProtocolo: ${request.id}\nData solicitada: ${dateStr}\n\nLembre-se que o uso de EPIs é OBRIGATÓRIO nas dependências operacionais.`,
+      htmlBody: htmlBody,
+      request: request
+    };
+
+    // Save logs to filesystem
+    try {
+      const logs = readMailLogs();
+      writeMailLogs([mailLog, ...logs]);
+    } catch (e) {
+      console.error("Erro ao gravar logs de email no servidor:", e);
+    }
+
+    if (!isSmtpConfigured) {
+      console.log(`[SMTP SIMULATION] Real SMTP not configured in database. Simulating email transmission of ${type} to ${request.email}`);
+      return {
+        success: true,
+        smtpConfigured: false,
+        message: type === "confirmation"
+          ? "E-mail de confirmação de cadastro gerado de forma integrada! Como as variáveis SMTP no ambiente (.env) não estão ativas no momento, o e-mail real não foi transmitido, mas foi arquivado e já pode ser visualizado na aba 'E-mails Enviados' no Painel Admin."
+          : type === "approval"
+            ? "E-mail de credencial gerado de forma integrada! Como as variáveis SMTP no ambiente (.env) não estão ativas no momento, o e-mail real não foi transmitido, mas foi arquivado e já pode ser visualizado na aba 'E-mails Enviados' no Painel Admin."
+            : "E-mail de recusa de cadastro gerado de forma integrada! Como as variáveis SMTP no ambiente (.env) não estão ativas no momento, o e-mail real não foi transmitido, mas foi arquivado e já pode ser visualizado na aba 'E-mails Enviados' no Painel Admin.",
+        mailLog
+      };
+    }
+
+    try {
+      console.log(`[SMTP TRANSMISSION] Sending real email via SMTP host ${host}:${port} to ${request.email}`);
+      
+      let transportOpts: any = {
+        host: host,
+        port: port,
+        secure: port === 465,
+        auth: {
+          user: user,
+          pass: pass,
+        },
+        tls: {
+          rejectUnauthorized: false
+        },
+        connectionTimeout: 20000, 
+        greetingTimeout: 20000,   
+        socketTimeout: 45000      
+      };
+
+      if (host.includes("gmail") || host.includes("google")) {
+        transportOpts = {
+          service: "gmail",
+          auth: {
+            user: user,
+            pass: pass,
+          },
+          tls: {
+            rejectUnauthorized: false
+          },
+          connectionTimeout: 20000,
+          greetingTimeout: 20000,
+          socketTimeout: 45000
+        };
+      }
+
+      const transporter = nodemailer.createTransport(transportOpts);
+
+      const info = await transporter.sendMail({
+        from: `"${fromAddr.includes("@") ? "Wilson Sons SESMT" : fromAddr}" <${fromAddr}>`,
+        to: request.email,
+        subject: subject,
+        html: htmlBody,
+        attachments: attachments,
+        text: mailLog.body
+      });
+
+      console.log(`[SMTP TRANSMISSION] Email successfully sent in real flight! Message ID: ${info.messageId}`);
+      
+      return {
+        success: true,
+        smtpConfigured: true,
+        message: type === "confirmation"
+          ? `E-mail de confirmação enviado com sucesso para ${request.email}! ID da mensagem: ${info.messageId}`
+          : type === "approval"
+            ? `Credencial enviada de forma autêntica com sucesso para o e-mail real: ${request.email}! ID da mensagem: ${info.messageId}`
+            : `Ficha de recusa enviada por e-mail com sucesso para: ${request.email}! ID da mensagem: ${info.messageId}`,
+        mailLog
+      };
+    } catch (err: any) {
+      console.warn("[SMTP FAILSAFE] Real SMTP failed or timed out: ", err.message);
+      
+      let customError = err.message;
+      if (
+        err.message.includes("535") || 
+        err.message.toLowerCase().includes("badcredentials") || 
+        err.message.toLowerCase().includes("invalid login") || 
+        err.message.toLowerCase().includes("username and password not accepted")
+      ) {
+        customError = "Credenciais Inválidas (Erro SMTP 535). O Google exige o uso de uma 'Senha de App' de 16 caracteres em contas Gmail com Verificação de Duas Etapas ativada, em vez de sua senha comum de login. Por favor, crie uma 'Senha de App' nas configurações de segurança da sua Conta Google e salve-a no Painel Admin!";
+      } else if (err.code === "ETIMEDOUT" || err.code === "ECONNREFUSED" || err.message.toLowerCase().includes("timeout")) {
+        customError = `Conectividade recusada ou limite de tempo esgotado (${err.code || "TIMEOUT"}). O servidor SMTP (${host}:${port}) está temporariamente inacessível.`;
+      }
+
+      return {
+        success: true,
+        smtpConfigured: true,
+        smtpError: err.message,
+        message: type === "confirmation"
+          ? `Solicitação recebida com sucesso! O e-mail de confirmação está disponível na aba 'E-mails Enviados' do Painel Admin (Envio real falhou: ${customError}).`
+          : type === "approval"
+            ? `Credencial gerada com sucesso! O crachá de acesso está disponível na aba 'E-mails Enviados' do Painel Admin (Envio real falhou: ${customError}).`
+            : `Visita recusada com sucesso! O e-mail de aviso está disponível na aba 'E-mails Enviados' do Painel Admin (Envio real falhou: ${customError}).`,
+        mailLog
+      };
+    }
+  }
+
+  // API - Mail Logs
+  app.get("/api/mail-logs", (req, res) => {
+    return res.json(readMailLogs());
+  });
+
   // API - Send Status Email with real nodemailer integration!
   app.post("/api/send-status-email", async (req, res) => {
     const { request, status, rejectionReason } = req.body;
@@ -706,6 +1446,16 @@ Olá, **${fullName || "Prezado Cliente"}** representativo de **${organization ||
       return res.status(400).json({ success: false, error: "Dados incompletos para envio de e-mail." });
     }
 
+    try {
+      const responsePayload = await sendNotificationEmail(request, status, rejectionReason);
+      return res.json(responsePayload);
+    } catch (err: any) {
+      console.error("[send-status-email Endpoint Error]", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /*
     const config = readConfig();
     const host = config.smtpHost || process.env.SMTP_HOST || "";
     const port = parseInt(config.smtpPort || process.env.SMTP_PORT || "587");
@@ -984,6 +1734,9 @@ Olá, **${fullName || "Prezado Cliente"}** representativo de **${organization ||
           user: user,
           pass: pass,
         },
+        tls: {
+          rejectUnauthorized: false
+        },
         connectionTimeout: 3500, // Slightly longer timeout for server transitions
         greetingTimeout: 2500,   
         socketTimeout: 6000      
@@ -996,6 +1749,9 @@ Olá, **${fullName || "Prezado Cliente"}** representativo de **${organization ||
           auth: {
             user: user,
             pass: pass,
+          },
+          tls: {
+            rejectUnauthorized: false
           }
         };
       }
@@ -1056,6 +1812,7 @@ Olá, **${fullName || "Prezado Cliente"}** representativo de **${organization ||
       });
     }
   });
+  */
 
   // Vite development mode middleware or production bundling configuration
   if (process.env.NODE_ENV !== "production") {

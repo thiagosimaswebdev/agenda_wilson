@@ -99,12 +99,62 @@ export default function App() {
     }
   }, [mailLogs]);
 
-  // Synchronize database updates to localStorage
+  // Fetch initial requests and feedbacks from the server when mounting
+  useEffect(() => {
+    async function loadBackendData() {
+      try {
+        const reqsResponse = await fetch("/api/requests");
+        if (reqsResponse.ok) {
+          const reqsData = await reqsResponse.json();
+          // Normalize status representation safely from English database uppercase to local enum representation
+          const normalizedReqs = reqsData.map((req: any) => {
+            let mappedStatus = VisitStatus.PENDING;
+            const s = String(req.status || "").trim().toUpperCase();
+            if (s === "APPROVED" || s === "APROVADO") {
+              mappedStatus = VisitStatus.APPROVED;
+            } else if (s === "REJECTED" || s === "REJEITADO") {
+              mappedStatus = VisitStatus.REJECTED;
+            }
+            return {
+              ...req,
+              status: mappedStatus
+            };
+          });
+          setRequests(normalizedReqs);
+        }
+      } catch (e) {
+        console.warn("Falha ao carregar solicitações do servidor, usando offline:", e);
+      }
+
+      try {
+        const fedsResponse = await fetch("/api/feedbacks");
+        if (fedsResponse.ok) {
+          const fedsData = await fedsResponse.json();
+          setFeedbacks(fedsData);
+        }
+      } catch (e) {
+        console.warn("Falha ao carregar feedbacks do servidor, usando offline:", e);
+      }
+
+      try {
+        const mailResponse = await fetch("/api/mail-logs");
+        if (mailResponse.ok) {
+          const mailLogsData = await mailResponse.json();
+          setMailLogs(mailLogsData);
+        }
+      } catch (e) {
+        console.warn("Falha ao carregar logs de e-mail do servidor, usando offline:", e);
+      }
+    }
+    loadBackendData();
+  }, []);
+
+  // Synchronize database updates to localStorage (as offline mirror/fallback)
   useEffect(() => {
     saveStoredRequests(requests);
   }, [requests]);
 
-  // Synchronize feedback updates to localStorage
+  // Synchronize feedback updates to localStorage (as offline mirror/fallback)
   useEffect(() => {
     saveStoredFeedbacks(feedbacks);
   }, [feedbacks]);
@@ -130,11 +180,20 @@ export default function App() {
 
     if (updated) {
       setRequests(updatedRequests);
+      // Synchronize back the automatically marked comments status to server as well
+      const updatedItem = updatedRequests.find((r) => r.status === VisitStatus.APPROVED && r.scheduledDate < todayStr && r.feedbackSent);
+      if (updatedItem) {
+        fetch(`/api/requests/${updatedItem.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ feedbackSent: true, feedbackSentDate: updatedItem.feedbackSentDate })
+        }).catch((e) => console.warn("Failed to sync auto feedback status:", e));
+      }
     }
   }, [requests]);
 
   // Create solicitation in database
-  const handleAddRequest = (newFields: Omit<VisitRequest, "id" | "submissionDate" | "status" | "securityCleared" | "securityConsentDate">) => {
+  const handleAddRequest = async (newFields: Omit<VisitRequest, "id" | "submissionDate" | "status" | "securityCleared" | "securityConsentDate">) => {
     const nextIdNumber = requests.length + 1;
     const formattedId = `WS-REQ-${String(nextIdNumber).padStart(3, "0")}`;
     
@@ -148,6 +207,32 @@ export default function App() {
     };
 
     setRequests((prev) => [request, ...prev]);
+
+    // Send POST to the server persistent store using standard database uppercase English representation
+    try {
+      const response = await fetch("/api/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...request,
+          status: "PENDING"
+        })
+      });
+
+      if (response.ok) {
+        try {
+          const mailResponse = await fetch("/api/mail-logs");
+          if (mailResponse.ok) {
+            const mailLogsData = await mailResponse.json();
+            setMailLogs(mailLogsData);
+          }
+        } catch (errLogs) {
+          console.warn("Falha ao recarregar logs de e-mail:", errLogs);
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao sincronizar nova solicitação com o servidor:", e);
+    }
   };
 
   // Alter status of solicitation (e.g. approve, reject with reason)
@@ -156,7 +241,7 @@ export default function App() {
     const match = requests.find((r) => r.id === id);
     if (!match) return;
 
-    // First, update requests state
+    // First, update requests state in local memory using the UI enum
     setRequests((prev) => 
       prev.map((r) => {
         if (r.id === id) {
@@ -170,10 +255,29 @@ export default function App() {
       })
     );
 
-    // Prepare request object with updated status for mailing
+    // Resolve unified uppercase database representation
+    let dbStatus = "PENDING";
+    if (nextStatus === VisitStatus.APPROVED) dbStatus = "APPROVED";
+    if (nextStatus === VisitStatus.REJECTED) dbStatus = "REJECTED";
+
+    // Save changes to backend server filesystem
+    try {
+      await fetch(`/api/requests/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: dbStatus,
+          rejectionReason: rejectionReason
+        })
+      });
+    } catch (e) {
+      console.error("Erro ao salvar status atualizado no servidor:", e);
+    }
+
+    // Prepare request object with updated status in database representation for mailing
     const updatedRequest = {
       ...match,
-      status: nextStatus,
+      status: dbStatus,
       rejectionReason: rejectionReason || match.rejectionReason
     };
 
@@ -185,7 +289,7 @@ export default function App() {
         },
         body: JSON.stringify({
           request: updatedRequest,
-          status: nextStatus,
+          status: dbStatus,
           rejectionReason: rejectionReason
         })
       });
@@ -239,14 +343,35 @@ export default function App() {
   };
 
   // Delete solicitation row
-  const handleDeleteRequest = (id: string) => {
+  const handleDeleteRequest = async (id: string) => {
     setRequests((prev) => prev.filter((r) => r.id !== id));
+    try {
+      await fetch(`/api/requests/${id}`, {
+        method: "DELETE"
+      });
+    } catch (e) {
+      console.error("Erro ao remover solicitação do servidor:", e);
+    }
   };
 
   // Reset database back to default list
-  const handleResetDatabase = () => {
+  const handleResetDatabase = async () => {
     if (confirm("Isto irá restaurar a planilha do Google Sheets de amostra original com as 4 solicitações mockadas da Wilson Sons. Continuar?")) {
-      setRequests(INITIAL_MOCK_REQUESTS);
+      try {
+        const resp = await fetch("/api/reset-requests", { method: "POST" });
+        if (resp.ok) {
+          const data = await resp.json();
+          setRequests(data.requests);
+          setFeedbacks(data.feedbacks);
+          setToast({
+            type: "success",
+            message: "Banco de dados restaurado com sucesso no servidor!"
+          });
+        }
+      } catch (e) {
+        console.error("Erro ao restaurar banco no servidor:", e);
+        setRequests(INITIAL_MOCK_REQUESTS);
+      }
     }
   };
 

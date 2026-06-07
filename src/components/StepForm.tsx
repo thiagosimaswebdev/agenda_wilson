@@ -215,7 +215,8 @@ export function StepForm({ onAddRequest, onBackToSafety, securityCleared, onRese
           cityState,
           visitorCount: Number(visitorCount),
           scheduledDate,
-          purpose
+          purpose,
+          visitorPhoto
         })
       });
 

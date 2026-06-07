@@ -629,6 +629,15 @@ export function AdminPanel({
     };
 
     setFeedbacks((prev) => [newFeedback, ...prev]);
+    try {
+      fetch("/api/feedbacks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newFeedback)
+      });
+    } catch (e) {
+      console.error("Erro ao sincronizar feedback com o servidor:", e);
+    }
     setShowFeedbackSimulator(null);
     setFeedbackComments("");
     setFeedbackOrgRating(5);
@@ -672,6 +681,16 @@ export function AdminPanel({
         // Update active selection details
         if (selectedRequest && selectedRequest.id === req.id) {
           setSelectedRequest((prev) => prev ? { ...prev, aiSuggestions: generatedSuggestions } : null);
+        }
+
+        try {
+          await fetch(`/api/requests/${req.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ aiSuggestions: generatedSuggestions })
+          });
+        } catch (e) {
+          console.error("Erro ao salvar sugestões geradas manualmente no servidor:", e);
         }
       } else {
         alert("Erro no servidor de IA ao computar roteiro de segurança.");
@@ -2646,7 +2665,19 @@ function updateVisitStatus(rowId, status, comments) {
                           }`}
                         >
                           <div className="flex justify-between items-center mb-1 text-slate-550 text-[10px] font-mono">
-                            <span className="font-bold uppercase tracking-wider text-orange-600">{log.type === "approval" ? "APROVAÇÃO ✓" : "RECUSA ❌"}</span>
+                            <span className={`font-bold uppercase tracking-wider ${
+                              log.type === "approval" 
+                                ? "text-emerald-600" 
+                                : log.type === "confirmation" 
+                                  ? "text-[#003366]" 
+                                  : "text-red-500"
+                            }`}>
+                              {log.type === "approval" 
+                                ? "APROVAÇÃO ✓" 
+                                : log.type === "confirmation" 
+                                  ? "CONFIRMAÇÃO 📝" 
+                                  : "RECUSA ❌"}
+                            </span>
                             <span>{log.date}</span>
                           </div>
                           <div className="font-extrabold text-slate-800 truncate mb-0.5">{log.subject}</div>
